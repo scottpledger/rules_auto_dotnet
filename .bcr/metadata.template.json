@@ -1,7 +1,13 @@
 {
-  "homepage": "https://github.com/myorg/rules_mylang",
-  "maintainers": [],
-  "repository": ["github:myorg/rules_mylang"],
+  "homepage": "https://github.com/scottpledger/rules_auto_dotnet",
+  "maintainers": [
+    {
+      "github": "scottpledger",
+      "name": "Scott Pledger",
+      "github_user_id": 1452087
+    }
+  ],
+  "repository": ["github:scottpledger/rules_auto_dotnet"],
   "versions": [],
   "yanked_versions": {}
 }
