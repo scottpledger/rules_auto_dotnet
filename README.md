@@ -1,52 +1,135 @@
-# Template for Bazel rules
+# rules_auto_dotnet
 
-Copy this template to create a Bazel ruleset.
+Automatic Bazel target generation from `.csproj` and `.fsproj` project files.
 
-Features:
-
-- follows the official style guide at https://bazel.build/rules/deploying
-- allows for both WORKSPACE.bazel and bzlmod (MODULE.bazel) usage
-- includes Bazel formatting as a pre-commit hook (using [buildifier])
-- includes API documentation generation
-- includes typical toolchain setup
-- CI configured with GitHub Actions
-- release using GitHub Actions just by pushing a tag
-- the release artifact doesn't need to be built by Bazel, but can still exclude files and stamp the version
-
-Ready to get started? Copy this repo, then
-
-1. search for "com_myorg_rules_mylang" and replace with the name you'll use for your workspace
-1. search for "myorg" and replace with GitHub org
-1. search for "mylang", "Mylang", "MYLANG" and replace with the language/tool your rules are for
-1. rename directory "mylang" similarly
-1. run `pre-commit install` to get lints (see CONTRIBUTING.md)
-1. if you don't need to fetch platform-dependent tools, then remove anything toolchain-related.
-1. (optional) install the [Renovate app](https://github.com/apps/renovate) to get auto-PRs to keep the dependencies up-to-date.
-1. delete this section of the README (everything up to the SNIP).
-
-Optional: if you write tools for your rules to call, you should avoid toolchain dependencies for those tools leaking to all users.
-For example, https://github.com/aspect-build/rules_py actions rely on a couple of binaries written in Rust, but we don't want users to be forced to
-fetch a working Rust toolchain. Instead we want to ship pre-built binaries on our GH releases, and the ruleset fetches these as toolchains.
-See https://blog.aspect.build/releasing-bazel-rulesets-rust for information on how to do this.
-Note that users who _do_ want to build tools from source should still be able to do so, they just need to register a different toolchain earlier.
-
----- SNIP ----
-
-# Bazel rules for mylang
+This module extension scans your workspace for .NET project files and generates
+Bazel targets using [rules_dotnet](https://github.com/bazel-contrib/rules_dotnet).
+It bridges the gap between existing MSBuild project structure and Bazel builds.
 
 ## Installation
 
-From the release you wish to use:
-<https://github.com/myorg/rules_mylang/releases>
-copy the WORKSPACE snippet into your `WORKSPACE` file.
+Add to your `MODULE.bazel`:
 
-To use a commit rather than a release, you can point at any SHA of the repo.
+```starlark
+# 1. Set up rules_dotnet toolchain
+bazel_dep(name = "rules_dotnet", version = "0.17.6")
 
-For example to use commit `abc123`:
+dotnet = use_extension("@rules_dotnet//dotnet:extensions.bzl", "dotnet")
+dotnet.toolchain(dotnet_version = "10.0.100")
+use_repo(dotnet, "dotnet_toolchains")
+register_toolchains("@dotnet_toolchains//:all")
 
-1. Replace `url = "https://github.com/myorg/rules_mylang/releases/download/v0.1.0/rules_mylang-v0.1.0.tar.gz"` with a GitHub-provided source archive like `url = "https://github.com/myorg/rules_mylang/archive/abc123.tar.gz"`
-1. Replace `strip_prefix = "rules_mylang-0.1.0"` with `strip_prefix = "rules_mylang-abc123"`
-1. Update the `sha256`. The easiest way to do this is to comment out the line, then Bazel will
-   print a message with the correct value. Note that GitHub source archives don't have a strong
-   guarantee on the sha256 stability, see
-   <https://github.blog/2023-02-21-update-on-the-future-stability-of-source-code-archives-and-hashes/>
+# 2. Enable automatic project scanning
+bazel_dep(name = "rules_auto_dotnet", version = "0.0.0")
+
+auto_dotnet = use_extension("@rules_auto_dotnet//auto_dotnet:extensions.bzl", "auto_dotnet")
+auto_dotnet.toolchain(dotnet_version = "10.0.100")
+auto_dotnet.scan_projects()
+use_repo(auto_dotnet, "dotnet_projects")
+```
+
+## Usage
+
+In your `BUILD.bazel` files, load the generated macros from `@dotnet_projects`:
+
+```starlark
+load("@dotnet_projects//path/to:MyProject.csproj.bzl", "auto_dotnet_targets")
+
+auto_dotnet_targets(
+    name = "MyProject",
+    visibility = ["//visibility:public"],
+)
+```
+
+The generated `auto_dotnet_targets()` macro creates the appropriate
+`csharp_binary`, `csharp_library`, `fsharp_binary`, or `fsharp_library` rule
+based on the project file contents.
+
+## How It Works
+
+1. **Scanning**: The extension scans your workspace for all `.csproj` and `.fsproj` files
+2. **Parsing**: Each project file is parsed to extract target framework(s), output type,
+   source files, project references, and NuGet package references
+3. **Generation**: A `.bzl` file is generated per project containing an `auto_dotnet_targets()`
+   macro that creates the appropriate rules_dotnet rule
+4. **Validation**: Registered toolchains are checked against discovered target frameworks
+
+## Configuration
+
+### Exclude Patterns
+
+Exclude certain paths from scanning:
+
+```starlark
+auto_dotnet.scan_projects(
+    exclude_patterns = [
+        "**/tests/**",
+        "**/legacy/**",
+    ],
+)
+```
+
+Default exclusions: `**/bin/**`, `**/obj/**`, `**/.git/**`, `**/.jj/**`, `**/bazel-*/**`
+
+### Toolchain Validation
+
+By default, the extension validates that your registered toolchains can build all
+discovered target frameworks:
+
+```starlark
+auto_dotnet.scan_projects(
+    fail_on_missing_toolchain = True,  # Default
+)
+```
+
+Set to `False` to emit warnings instead of failing.
+
+### Overriding Generated Targets
+
+The `auto_dotnet_targets()` macro accepts `**kwargs` to override any generated attribute:
+
+```starlark
+auto_dotnet_targets(
+    name = "MyProject",
+    visibility = ["//visibility:public"],
+    deps = ["//other:dependency"],
+    compiler_options = ["/warnaserror"],
+)
+```
+
+## File Change Detection
+
+Bazel automatically re-scans when existing `.csproj`/`.fsproj` files change or
+new projects appear in directories that already contain projects. For new project
+files in entirely new directories, run:
+
+```bash
+bazel sync --only=@dotnet_projects
+```
+
+## IDE Support
+
+Use `dotnet_generated_props` to generate `.props` files that let your IDE see
+Bazel-generated source files:
+
+```starlark
+load("@rules_auto_dotnet//auto_dotnet:defs.bzl", "dotnet_generated_props")
+
+dotnet_generated_props(
+    name = "sync_ide",
+    generated_srcs = [":my_protos"],
+    out = "MyProject.Generated.props",
+)
+```
+
+Then import in your `.csproj`:
+
+```xml
+<Import Project="MyProject.Generated.props"
+        Condition="Exists('MyProject.Generated.props')" />
+```
+
+## Requirements
+
+- Bazel 7.1 or later (for `repository_ctx.workspace_root`)
+- [rules_dotnet](https://github.com/bazel-contrib/rules_dotnet) for .NET build rules and SDK toolchains

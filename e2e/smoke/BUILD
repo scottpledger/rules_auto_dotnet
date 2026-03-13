@@ -1,17 +1,9 @@
-"""Provides a simple way to test your rules as an external workspace.
-Add a basic smoke-test target below.
-"""
+"""Provides a simple way to test rules_auto_dotnet as an external workspace."""
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-# load("@com_myorg_rules_mylang//mylang:defs.bzl", "...")
 
-# Replace with a usage of your rule/macro
-filegroup(name = "empty")
-
+# Verify rules_auto_dotnet can be used as a dependency by building a target from it.
 build_test(
     name = "smoke_test",
-    targets = [
-        # targets you add above
-        ":empty",
-    ],
+    targets = ["@rules_auto_dotnet//:package_metadata"],
 )
