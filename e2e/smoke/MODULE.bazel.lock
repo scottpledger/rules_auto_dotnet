@@ -227,7 +227,7 @@
     "@@rules_auto_dotnet+//auto_dotnet:extensions.bzl%auto_dotnet": {
       "general": {
         "bzlTransitiveDigest": "5TGkTJRsuFSUbKE465mk7zwEWpzOxBRu9k9STQSEvv4=",
-        "usagesDigest": "CgPAyxcSMRqGsiQiKvnQLWyCFmo5t5XIF9cswDpYPg4=",
+        "usagesDigest": "ccDB0NUf2qUmqs7TVXznC65G5mtlJkPCO+DuyFiwIjU=",
         "recordedInputs": [
           "REPO_MAPPING:rules_auto_dotnet+,bazel_lib bazel_lib+",
           "REPO_MAPPING:rules_auto_dotnet+,bazel_skylib bazel_skylib+",
