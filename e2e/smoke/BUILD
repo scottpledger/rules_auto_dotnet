@@ -7,3 +7,37 @@ build_test(
     name = "smoke_test",
     targets = ["@rules_auto_dotnet//:package_metadata"],
 )
+
+genrule(
+    name = "integration_scan_projects_verify",
+    srcs = [
+        "integration_scan_projects_verify.py",
+        "@dotnet_projects//src/app:App.csproj.bzl",
+        "@dotnet_projects//src/lib:Lib.csproj.bzl",
+        "@dotnet_projects//src/core:Core.csproj.bzl",
+        "@dotnet_projects//src/tests:CoreTests.csproj.bzl",
+        "@dotnet_projects//src/core:MissingPaket.csproj.bzl",
+        "@dotnet_projects//:diagnostics.json",
+        "@dotnet_projects//:DIAGNOSTICS.md",
+    ],
+    outs = ["integration_scan_projects_verify.ok"],
+    cmd = "python3 $(location integration_scan_projects_verify.py) $(location @dotnet_projects//src/app:App.csproj.bzl) $(location @dotnet_projects//src/lib:Lib.csproj.bzl) $(location @dotnet_projects//src/core:Core.csproj.bzl) $(location @dotnet_projects//src/tests:CoreTests.csproj.bzl) $(location @dotnet_projects//:diagnostics.json) $(location @dotnet_projects//:DIAGNOSTICS.md) && echo OK > $@",
+    cmd_bat = "python $(location integration_scan_projects_verify.py) $(location @dotnet_projects//src/app:App.csproj.bzl) $(location @dotnet_projects//src/lib:Lib.csproj.bzl) $(location @dotnet_projects//src/core:Core.csproj.bzl) $(location @dotnet_projects//src/tests:CoreTests.csproj.bzl) $(location @dotnet_projects//:diagnostics.json) $(location @dotnet_projects//:DIAGNOSTICS.md) && echo OK > $@",
+)
+
+build_test(
+    name = "integration_scan_projects_test",
+    targets = [":integration_scan_projects_verify"],
+)
+
+build_test(
+    name = "dotnet_projects_files_exist_test",
+    targets = [
+        "@dotnet_projects//src/app:App.csproj.bzl",
+        "@dotnet_projects//src/lib:Lib.csproj.bzl",
+        "@dotnet_projects//src/core:Core.csproj.bzl",
+        "@dotnet_projects//src/tests:CoreTests.csproj.bzl",
+        "@dotnet_projects//:diagnostics.json",
+        "@dotnet_projects//:DIAGNOSTICS.md",
+    ],
+)

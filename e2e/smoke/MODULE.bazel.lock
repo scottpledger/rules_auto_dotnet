@@ -224,6 +224,49 @@
         }
       }
     },
+    "@@rules_auto_dotnet+//auto_dotnet:extensions.bzl%auto_dotnet": {
+      "general": {
+        "bzlTransitiveDigest": "4A86eopzaZgKkRyd3kxRaVGEJZ64obTNUUGkyMhEgE4=",
+        "usagesDigest": "CgPAyxcSMRqGsiQiKvnQLWyCFmo5t5XIF9cswDpYPg4=",
+        "recordedInputs": [
+          "REPO_MAPPING:rules_auto_dotnet+,bazel_lib bazel_lib+",
+          "REPO_MAPPING:rules_auto_dotnet+,bazel_skylib bazel_skylib+",
+          "REPO_MAPPING:rules_auto_dotnet+,xml.bzl xml.bzl+"
+        ],
+        "generatedRepoSpecs": {
+          "dotnet_projects": {
+            "repoRuleId": "@@rules_auto_dotnet+//auto_dotnet/private:dotnet_projects_repo.bzl%dotnet_projects_repo",
+            "attributes": {
+              "exclude_patterns": [
+                "**/bin/**",
+                "**/obj/**",
+                "**/.git/**",
+                "**/.jj/**",
+                "**/bazel-*/**",
+                "**/.git/**",
+                "**/bazel-*/**"
+              ],
+              "nuget_repo_name": "dotnet_projects.nuget",
+              "registered_toolchains": "{\"dotnet\":\"10.0.100\"}",
+              "fail_on_missing_toolchain": true,
+              "toolchain_diagnostics": "warn",
+              "parser_diagnostics": "warn",
+              "paket_diagnostics": "warn",
+              "internals_visibility_diagnostics": "warn",
+              "emit_diagnostics_report": true
+            }
+          }
+        },
+        "moduleExtensionMetadata": {
+          "explicitRootModuleDirectDeps": [
+            "dotnet_projects"
+          ],
+          "explicitRootModuleDirectDevDeps": [],
+          "useAllRepos": "NO",
+          "reproducible": false
+        }
+      }
+    },
     "@@rules_dotnet+//dotnet:extensions.bzl%dotnet": {
       "general": {
         "bzlTransitiveDigest": "3NFH9+PfsEdlRhZtq3iPX8FRGmmgowYZvWUuTyxUYdw=",

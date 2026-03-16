@@ -31,11 +31,32 @@ parser extracts:
 | Source files        | `<Compile Include="...">`                        | `Program.cs`, `Lib.fs`                       |
 | Project references  | `<ProjectReference Include="...">`               | `../lib/lib.csproj`                          |
 | Package references  | `<PackageReference Include="..." Version="...">` | `Newtonsoft.Json 13.0.3`                     |
+| Friend assemblies   | `InternalsVisibleTo` item/attribute forms        | `MyProject.Tests`                            |
 | Properties          | Various `<PropertyGroup>` children               | `Nullable`, `LangVersion`, etc.              |
 
 The parser handles both single-target (`TargetFramework`) and multi-target
 (`TargetFrameworks`) projects, SDK-style default items, and properties that map
 to Bazel rule attributes.
+
+### Parser Safety Contract
+
+Parser and side-file errors are isolated per project. A malformed `.csproj`, malformed
+friend-assembly declaration, or malformed `paket.references` content must not abort
+scanning of unrelated projects.
+
+Behavior by diagnostics mode:
+
+- `off`: findings are suppressed for that category.
+- `warn`: structured findings are emitted and scan continues.
+- `strict`: findings are aggregated and the repository rule fails at the end with
+  the full set of failures.
+
+Supported `paket.references` parsing behavior:
+
+- Ignore blank lines and `#` comments.
+- Parse bare IDs and `nuget <id>` lines.
+- Ignore unsupported directives (for example `framework:`) without failing scan.
+- Read `paket.references` only when `Paket.Restore.targets` import is present.
 
 ## Code Generation
 
@@ -67,10 +88,38 @@ Key generation decisions:
 - **Project references**: Relative paths like `../lib/lib.csproj` are resolved to
   Bazel labels like `//lib:lib` using path normalization.
 - **NuGet references**: Package IDs are lowercased and prefixed with the NuGet repo name.
+- **Paket references**: When Paket restore import is detected, package IDs from
+  sibling `paket.references` are merged with explicit `PackageReference` entries.
 - **Additional attributes**: `Nullable`, `LangVersion`, `TreatWarningsAsErrors`,
   `WarningLevel`, and `AllowUnsafeBlocks` are extracted and passed through.
+- **Project SDK emission**: `project_sdk` is emitted deterministically (for example
+  `web` or `default`) so generated macros remain stable.
+- **Internals visibility emission**: `internals_visible_to` labels are emitted from
+  explicit friend declarations and sorted for deterministic output.
 - **kwargs passthrough**: All generated macros accept `**kwargs` allowing users to
   override any attribute.
+
+## Diagnostics Policy
+
+`scan_projects()` supports per-category diagnostics policy:
+
+- `toolchain_diagnostics`: `off|warn|strict`
+- `parser_diagnostics`: `off|warn|strict`
+- `paket_diagnostics`: `off|warn|strict`
+- `internals_visibility_diagnostics`: `off|warn|strict`
+
+Structured reports are emitted when `emit_diagnostics_report = True`:
+
+- `@dotnet_projects//:diagnostics.json`
+- `@dotnet_projects//:DIAGNOSTICS.md`
+
+## InternalsVisibleTo Policy
+
+- Explicit `InternalsVisibleTo` declarations are treated as source of truth.
+- Reference-derived checks are advisory unless `internals_visibility_diagnostics`
+  is set to `strict`.
+- Friend assembly matching normalizes case and strips public-key suffixes when
+  comparing declarations to project assembly names.
 
 ## File Change Detection
 
@@ -88,6 +137,8 @@ directories containing project files. This means:
 ├── BUILD.bazel              # Root BUILD with exports_files
 ├── defs.bzl                 # Common utilities
 ├── TOOLCHAIN_COVERAGE.md    # TFM coverage summary
+├── DIAGNOSTICS.md           # Human-readable diagnostics summary
+├── diagnostics.json         # Machine-readable diagnostics report
 ├── CONFLICTS.md             # NuGet version conflicts (if any)
 ├── path/to/
 │   ├── BUILD.bazel          # exports_files for .bzl files
@@ -97,5 +148,5 @@ directories containing project files. This means:
     ├── BUILD.bazel
     ├── packages.bzl          # Consolidated NuGet packages
     ├── packages_extension.bzl
-    └── packet.dependencies.generated
+    └── paket.dependencies.generated
 ```

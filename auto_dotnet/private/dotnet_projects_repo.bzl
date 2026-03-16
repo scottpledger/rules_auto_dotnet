@@ -1,9 +1,11 @@
 "Repository rule for scanning and generating .bzl files from .csproj/.fsproj projects"
 
 load("@bazel_lib//lib:glob_match.bzl", "glob_match")
+load("@bazel_skylib//lib:paths.bzl", "paths")
 load(":generator.bzl", "generate_defs_bzl", "generate_project_bzl", "generate_root_build_bazel", "generate_subdir_build_bazel")
-load(":nuget_collector.bzl", "create_nuget_collector", "generate_nuget_packages_bzl", "generate_packet_dependencies")
+load(":nuget_collector.bzl", "create_nuget_collector", "generate_nuget_packages_bzl", "generate_paket_dependencies")
 load(":parser.bzl", "parse_project_file")
+load(":path_utils.bzl", "resolve_relative_path")
 load(":tfm_utils.bzl", "find_best_toolchain_for_tfms")
 
 def _find_project_files(repository_ctx, workspace_dir, exclude_patterns):
@@ -201,6 +203,71 @@ def _matches_exclude(path, patterns):
             return True
     return False
 
+def _project_dir(project_path):
+    if "/" not in project_path:
+        return ""
+    return "/".join(project_path.split("/")[:-1])
+
+def _project_stem(project_path):
+    filename = project_path.split("/")[-1]
+    return paths.split_extension(filename)[0]
+
+def _project_path_to_label(project_path):
+    project_dir = _project_dir(project_path)
+    stem = _project_stem(project_path)
+    if project_dir:
+        return "//{}:{}".format(project_dir, stem)
+    return ":{}".format(stem)
+
+def _parse_paket_references_content(content):
+    """Parse paket.references content into package IDs."""
+    package_ids = []
+    for raw_line in content.split("\n"):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        # Support either "Package.Id" or "nuget Package.Id ...".
+        lower = line.lower()
+        if lower.startswith("nuget "):
+            tokens = [t for t in line.split(" ") if t]
+            if len(tokens) >= 2:
+                package_ids.append(tokens[1])
+            continue
+
+        if " " in line:
+            # Ignore unsupported directives while keeping parser resilient.
+            continue
+        package_ids.append(line)
+    return sorted(package_ids)
+
+def _merge_package_references(package_refs, paket_ids):
+    """Merge package references with paket.references package IDs."""
+    by_id = {}
+    for pkg in package_refs:
+        normalized = pkg.id.lower()
+        by_id[normalized] = struct(id = pkg.id, version = pkg.version)
+
+    for paket_id in paket_ids:
+        normalized = paket_id.lower()
+        if normalized not in by_id:
+            by_id[normalized] = struct(id = paket_id, version = "")
+
+    merged = []
+    for normalized in sorted(by_id.keys()):
+        merged.append(by_id[normalized])
+    return merged
+
+def _normalize_assembly_name(name):
+    if not name:
+        return ""
+    cleaned = name.strip()
+    if not cleaned:
+        return ""
+    if "," in cleaned:
+        cleaned = cleaned.split(",", 1)[0].strip()
+    return cleaned.lower()
+
 def _validate_diagnostics_mode(attr_name, mode):
     """Validate diagnostics mode.
 
@@ -223,6 +290,31 @@ def _add_diagnostic(diagnostics, category, severity, message, project_path = "",
         "message": message,
         "remediation": remediation,
     })
+
+def _record_policy_diagnostic(
+        diagnostics,
+        strict_failures,
+        mode,
+        category,
+        message,
+        project_path = "",
+        remediation = "",
+        strict_prefix = ""):
+    """Record diagnostics according to policy mode."""
+    if mode == "off":
+        return
+
+    severity = "error" if mode == "strict" else "warning"
+    _add_diagnostic(diagnostics, category, severity, message, project_path, remediation)
+
+    if mode == "strict":
+        if strict_prefix:
+            strict_failures.append("{}: {}".format(strict_prefix, message))
+        else:
+            strict_failures.append(message)
+    elif mode == "warn":
+        # buildifier: disable=print
+        print("WARNING: {}".format(message))
 
 def _diag_sort_key(diag):
     return "{}|{}|{}|{}".format(
@@ -338,6 +430,39 @@ def apply_parser_errors_for_test(parser_mode, project_path, parse_errors):
         strict_failures = strict_failures,
     )
 
+def apply_policy_diagnostic_for_test(mode, category, message):
+    """Test helper for generic policy-driven diagnostics.
+
+    Args:
+        mode: Diagnostics policy mode (off|warn|strict).
+        category: Diagnostic category to emit.
+        message: Diagnostic message body.
+
+    Returns:
+        Struct containing diagnostics and strict_failures.
+    """
+    diagnostics = []
+    strict_failures = []
+    _record_policy_diagnostic(
+        diagnostics,
+        strict_failures,
+        mode,
+        category,
+        message,
+    )
+    return struct(
+        diagnostics = diagnostics,
+        strict_failures = strict_failures,
+    )
+
+def parse_paket_references_for_test(content):
+    """Test helper for parsing paket.references content."""
+    return _parse_paket_references_content(content)
+
+def merge_package_references_for_test(package_refs, paket_ids):
+    """Test helper for package merge behavior."""
+    return _merge_package_references(package_refs, paket_ids)
+
 def _dotnet_projects_repo_impl(repository_ctx):
     """Implementation of the dotnet_projects_repo repository rule."""
     exclude_patterns = repository_ctx.attr.exclude_patterns
@@ -347,6 +472,11 @@ def _dotnet_projects_repo_impl(repository_ctx):
     emit_diagnostics_report = repository_ctx.attr.emit_diagnostics_report
     parser_mode = _validate_diagnostics_mode("parser_diagnostics", repository_ctx.attr.parser_diagnostics)
     toolchain_mode = _validate_diagnostics_mode("toolchain_diagnostics", repository_ctx.attr.toolchain_diagnostics)
+    paket_mode = _validate_diagnostics_mode("paket_diagnostics", repository_ctx.attr.paket_diagnostics)
+    internals_mode = _validate_diagnostics_mode(
+        "internals_visibility_diagnostics",
+        repository_ctx.attr.internals_visibility_diagnostics,
+    )
     if fail_on_missing and toolchain_mode == "warn":
         # Preserve existing behavior when fail_on_missing_toolchain is enabled.
         toolchain_mode = "strict"
@@ -409,6 +539,9 @@ def _dotnet_projects_repo_impl(repository_ctx):
     # Collect all TFMs for validation
     all_tfms = {}  # TFM -> list of projects using it
     parsed_projects = []  # Store parsed projects for later processing
+    project_to_assembly = {}
+    assembly_to_project = {}
+    reverse_refs = {}  # referenced project path -> dict(referencing project path -> True)
 
     # First pass: parse all projects and collect TFMs
     for project_path in project_files:
@@ -426,6 +559,44 @@ def _dotnet_projects_repo_impl(repository_ctx):
         # Parse the project
         parsed = parse_project_file(content)
 
+        # Merge paket.references when Paket restore import is present.
+        if parsed.uses_paket:
+            project_dir = _project_dir(project_path)
+            paket_refs_path = "paket.references" if not project_dir else project_dir + "/paket.references"
+            paket_refs_full = repository_ctx.path(workspace_dir).get_child(paket_refs_path)
+            paket_refs_content = ""
+            if hasattr(paket_refs_full, "exists") and paket_refs_full.exists:
+                paket_refs_content = repository_ctx.read(paket_refs_full)
+
+            if paket_refs_content:
+                paket_ids = _parse_paket_references_content(paket_refs_content)
+                merged_package_refs = _merge_package_references(parsed.package_references, paket_ids)
+                parsed = struct(
+                    sdk = parsed.sdk,
+                    target_frameworks = parsed.target_frameworks,
+                    output_type = parsed.output_type,
+                    sources = parsed.sources,
+                    project_references = parsed.project_references,
+                    package_references = merged_package_refs,
+                    internals_visible_to = parsed.internals_visible_to,
+                    uses_paket = parsed.uses_paket,
+                    properties = parsed.properties,
+                    enable_default_items = parsed.enable_default_items,
+                    is_fsharp = parsed.is_fsharp,
+                    errors = parsed.errors,
+                )
+            else:
+                _record_policy_diagnostic(
+                    diagnostics,
+                    strict_failures,
+                    paket_mode,
+                    "paket",
+                    "Project imports Paket restore targets but no paket.references was found.",
+                    project_path,
+                    "Add paket.references next to the project file, or remove Paket.Restore.targets import.",
+                    "Paket diagnostic",
+                )
+
         if parsed.errors:
             _apply_parser_errors(
                 diagnostics,
@@ -442,6 +613,22 @@ def _dotnet_projects_repo_impl(repository_ctx):
             all_tfms[tfm].append(project_path)
 
         # Store for later
+        assembly_name = parsed.properties.get("AssemblyName", _project_stem(project_path))
+        normalized_assembly = _normalize_assembly_name(assembly_name)
+        if normalized_assembly and normalized_assembly not in assembly_to_project:
+            assembly_to_project[normalized_assembly] = project_path
+        project_to_assembly[project_path] = assembly_name
+
+        # Build reverse reference index for internals_visible_to derivation.
+        project_dir = _project_dir(project_path)
+        for proj_ref in parsed.project_references:
+            resolved = resolve_relative_path(project_dir, proj_ref.path)
+            if not resolved:
+                continue
+            if resolved not in reverse_refs:
+                reverse_refs[resolved] = {}
+            reverse_refs[resolved][project_path] = True
+
         parsed_projects.append(struct(
             path = project_path,
             parsed = parsed,
@@ -523,12 +710,45 @@ def _dotnet_projects_repo_impl(repository_ctx):
         project_path = proj.path
         parsed = proj.parsed
         is_fsharp = proj.is_fsharp
+        project_dir = _project_dir(project_path)
+
+        # Compute internals_visible_to labels from explicit declarations and
+        # reverse references (derived friend targets for gradual adoption).
+        internals_visible_to_labels = {}
+        explicit_friends = {}
+        for friend in parsed.internals_visible_to:
+            normalized_friend = _normalize_assembly_name(friend)
+            if not normalized_friend:
+                continue
+            explicit_friends[normalized_friend] = True
+            friend_project = assembly_to_project.get(normalized_friend)
+            if friend_project:
+                internals_visible_to_labels[_project_path_to_label(friend_project)] = True
+
+        referencers = reverse_refs.get(project_path, {})
+        for referencer_path in sorted(referencers.keys()):
+            internals_visible_to_labels[_project_path_to_label(referencer_path)] = True
+            referencer_assembly = project_to_assembly.get(referencer_path, "")
+            normalized_referencer = _normalize_assembly_name(referencer_assembly)
+            if normalized_referencer and normalized_referencer not in explicit_friends:
+                _record_policy_diagnostic(
+                    diagnostics,
+                    strict_failures,
+                    internals_mode,
+                    "internals_visible_to",
+                    "Project is referenced by {} but does not explicitly declare InternalsVisibleTo for assembly {}.".format(
+                        referencer_path,
+                        referencer_assembly,
+                    ),
+                    project_path,
+                    "Add explicit InternalsVisibleTo metadata if internals sharing is required.",
+                    "InternalsVisibleTo diagnostic",
+                )
 
         # Collect NuGet packages
         nuget_collector.add_packages_from_project(parsed.package_references, project_path)
 
         # Generate .bzl content
-        project_dir = "/".join(project_path.split("/")[:-1]) if "/" in project_path else ""
         bzl_content = generate_project_bzl(
             parsed,
             project_path,
@@ -536,6 +756,7 @@ def _dotnet_projects_repo_impl(repository_ctx):
             is_fsharp,
             nuget_repo_name,
             str(workspace_dir),
+            sorted(internals_visible_to_labels.keys()),
         )
 
         # Determine output path
@@ -565,9 +786,9 @@ def _dotnet_projects_repo_impl(repository_ctx):
         nuget_extension_bzl = _generate_nuget_extension_bzl(nuget_repo_name)
         repository_ctx.file("nuget/packages_extension.bzl", nuget_extension_bzl)
 
-        # Generate a packet.dependencies file to help users set up Packet
-        packet_deps = generate_packet_dependencies(resolved_packages)
-        repository_ctx.file("nuget/paket.dependencies.generated", packet_deps)
+        # Generate a paket.dependencies file to help users set up Paket
+        paket_deps = generate_paket_dependencies(resolved_packages)
+        repository_ctx.file("nuget/paket.dependencies.generated", paket_deps)
 
         if "nuget" not in generated_dirs:
             generated_dirs["nuget"] = []
@@ -664,6 +885,14 @@ dotnet_projects_repo = repository_rule(
         "parser_diagnostics": attr.string(
             default = "warn",
             doc = "Diagnostics mode for parser checks: off|warn|strict.",
+        ),
+        "paket_diagnostics": attr.string(
+            default = "warn",
+            doc = "Diagnostics mode for Paket checks: off|warn|strict.",
+        ),
+        "internals_visibility_diagnostics": attr.string(
+            default = "warn",
+            doc = "Diagnostics mode for internals visibility checks: off|warn|strict.",
         ),
         "emit_diagnostics_report": attr.bool(
             default = True,

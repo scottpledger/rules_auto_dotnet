@@ -84,6 +84,22 @@ _PROPERTIES_CSPROJ = """<?xml version="1.0" encoding="utf-8"?>
 </Project>
 """
 
+_PAKET_AND_IVT_CSPROJ = """<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../.paket/Paket.Restore.targets" />
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>My.Library</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Friend.Project, PublicKey=abcd" />
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Other.Friend</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>
+"""
+
 # Malformed project XML (unclosed tags)
 _MALFORMED_CSPROJ = """<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
@@ -203,12 +219,25 @@ def _get_project_sdk_attr_test_impl(ctx):
     regular_parsed = parse_project_file(_CSHARP_LIBRARY_CSPROJ)
     web_parsed = parse_project_file(_WEB_SDK_CSPROJ)
 
-    asserts.equals(env, None, get_project_sdk_attr(regular_parsed))
+    asserts.equals(env, "default", get_project_sdk_attr(regular_parsed))
     asserts.equals(env, "web", get_project_sdk_attr(web_parsed))
 
     return unittest.end(env)
 
 get_project_sdk_attr_test = unittest.make(_get_project_sdk_attr_test_impl)
+
+def _paket_and_internals_parse_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    parsed = parse_project_file(_PAKET_AND_IVT_CSPROJ)
+
+    asserts.equals(env, True, parsed.uses_paket)
+    asserts.equals(env, ["Friend.Project", "Other.Friend"], parsed.internals_visible_to)
+    asserts.equals(env, "My.Library", parsed.properties.get("AssemblyName"))
+
+    return unittest.end(env)
+
+paket_and_internals_parse_test = unittest.make(_paket_and_internals_parse_test_impl)
 
 def _extract_additional_attrs_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -256,6 +285,7 @@ def parser_test_suite(name):
         get_project_type_test,
         get_bazel_rule_name_test,
         get_project_sdk_attr_test,
+        paket_and_internals_parse_test,
         extract_additional_attrs_test,
         parse_malformed_project_test,
     )
