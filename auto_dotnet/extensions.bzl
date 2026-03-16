@@ -21,6 +21,28 @@ Packages can be referenced as @{nuget_repo_name}//PackageName.""",
 
 Set to false to only emit warnings instead of failing.""",
     ),
+    "toolchain_diagnostics": attr.string(
+        default = "warn",
+        doc = """Severity for toolchain coverage diagnostics.
+
+Allowed values: "off", "warn", "strict".
+- off: do not emit toolchain diagnostics
+- warn: emit warnings and continue (default)
+- strict: fail after collecting diagnostics""",
+    ),
+    "parser_diagnostics": attr.string(
+        default = "warn",
+        doc = """Severity for project parsing diagnostics.
+
+Allowed values: "off", "warn", "strict".
+- off: ignore parse diagnostics
+- warn: emit warnings and continue (default)
+- strict: fail after collecting diagnostics""",
+    ),
+    "emit_diagnostics_report": attr.bool(
+        default = True,
+        doc = "If true, generate DIAGNOSTICS.md and diagnostics.json in @dotnet_projects.",
+    ),
 }
 
 # buildifier: disable=unsorted-dict-items
@@ -74,6 +96,9 @@ def _auto_dotnet_extension(module_ctx):
             nuget_repo_name = nuget_repo_name,
             registered_toolchains = json.encode(registrations),
             fail_on_missing_toolchain = scan_config.fail_on_missing_toolchain,
+            toolchain_diagnostics = scan_config.toolchain_diagnostics,
+            parser_diagnostics = scan_config.parser_diagnostics,
+            emit_diagnostics_report = scan_config.emit_diagnostics_report,
         )
         repos_to_return.append("dotnet_projects")
 

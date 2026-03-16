@@ -84,6 +84,16 @@ _PROPERTIES_CSPROJ = """<?xml version="1.0" encoding="utf-8"?>
 </Project>
 """
 
+# Malformed project XML (unclosed tags)
+_MALFORMED_CSPROJ = """<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+</Project>
+"""
+
 def _parse_csharp_library_test_impl(ctx):
     env = unittest.begin(ctx)
 
@@ -220,6 +230,21 @@ def _extract_additional_attrs_test_impl(ctx):
 
 extract_additional_attrs_test = unittest.make(_extract_additional_attrs_test_impl)
 
+def _parse_malformed_project_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    parsed = parse_project_file(_MALFORMED_CSPROJ)
+
+    # Parser should degrade safely with default values and surfaced errors.
+    asserts.equals(env, "Microsoft.NET.Sdk", parsed.sdk)
+    asserts.equals(env, "Library", parsed.output_type)
+    asserts.equals(env, [], parsed.target_frameworks)
+    asserts.true(env, len(parsed.errors) > 0)
+
+    return unittest.end(env)
+
+parse_malformed_project_test = unittest.make(_parse_malformed_project_test_impl)
+
 def parser_test_suite(name):
     unittest.suite(
         name,
@@ -232,4 +257,5 @@ def parser_test_suite(name):
         get_bazel_rule_name_test,
         get_project_sdk_attr_test,
         extract_additional_attrs_test,
+        parse_malformed_project_test,
     )

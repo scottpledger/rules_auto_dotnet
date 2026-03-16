@@ -28,6 +28,18 @@ jobs:
           {"folder": "e2e/smoke", "bzlmodEnabled": false},
           {"bazelversion": "6.4.0"}
         ]
+  cross-platform-smoke:
+    name: Cross-platform smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: bazelbuild/setup-bazelisk@v3
+      - name: Run cross-platform representative tests
+        run: bazel test //auto_dotnet/tests:parser_test //auto_dotnet/tests:generator_test
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -36,7 +48,7 @@ jobs:
   # For branch protection settings, this job provides a "stable" name that can be used to gate PR merges
   # on "all matrix jobs were successful".
   conclusion:
-    needs: [test, pre-commit]
+    needs: [test, cross-platform-smoke, pre-commit]
     runs-on: ubuntu-latest
     if: always()
     steps:

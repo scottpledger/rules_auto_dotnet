@@ -41,14 +41,17 @@ For example, an SDK version `10.0.100` (major version 10) can build `net10.0`,
 
 ### Error Behavior
 
-When `fail_on_missing_toolchain = True` (default), the extension fails with a
-detailed message listing:
+When `toolchain_diagnostics = "strict"` (or `fail_on_missing_toolchain = True`),
+the extension fails with a detailed message listing:
 
 - Each uncovered TFM
 - Which projects use it (up to 3 listed, plus count of remaining)
 - Suggested SDK version to register
 
-When set to `False`, the same information is printed as a warning.
+When diagnostics mode is `warn`, the same information is emitted as warnings and
+included in generated diagnostics reports.
+
+When diagnostics mode is `off`, toolchain coverage findings are suppressed.
 
 ### Multiple Toolchains
 

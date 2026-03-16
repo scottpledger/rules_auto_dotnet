@@ -137,9 +137,10 @@ def find_best_toolchain_for_tfms(registered_sdks, tfms):
     uncovered = []
     suggestions = {}
 
-    for tfm in tfms:
+    for tfm in sorted(tfms):
         supporting_toolchains = []
-        for name, sdk_version in registered_sdks.items():
+        for name in sorted(registered_sdks.keys()):
+            sdk_version = registered_sdks[name]
             if sdk_supports_tfm(sdk_version, tfm):
                 supporting_toolchains.append(name)
 
