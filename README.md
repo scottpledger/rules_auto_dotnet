@@ -6,6 +6,8 @@ This module extension scans your workspace for .NET project files and generates
 Bazel targets using [rules_dotnet](https://github.com/bazel-contrib/rules_dotnet).
 It bridges the gap between existing MSBuild project structure and Bazel builds.
 
+WARNING: This module is experimental and not yet ready for production use. APIs will likely change as the implementation is fleshed out. Use at your own risk until version 1.0.0 is released.
+
 ## Installation
 
 Add to your `MODULE.bazel`:
@@ -84,6 +86,20 @@ auto_dotnet.scan_projects(
 
 Set to `False` to emit warnings instead of failing.
 
+You can also configure diagnostics policy explicitly:
+
+```starlark
+auto_dotnet.scan_projects(
+    toolchain_diagnostics = "warn",  # off | warn | strict
+    parser_diagnostics = "warn",     # off | warn | strict
+    emit_diagnostics_report = True,  # writes diagnostics.json + DIAGNOSTICS.md
+)
+```
+
+`rules_auto_dotnet` does not register toolchains. Continue registering toolchains
+through `rules_dotnet`; generated and manual targets both resolve through those
+global registrations.
+
 ### Overriding Generated Targets
 
 The `auto_dotnet_targets()` macro accepts `**kwargs` to override any generated attribute:
@@ -133,3 +149,5 @@ Then import in your `.csproj`:
 
 - Bazel 7.1 or later (for `repository_ctx.workspace_root`)
 - [rules_dotnet](https://github.com/bazel-contrib/rules_dotnet) for .NET build rules and SDK toolchains
+- Cross-platform support is a core requirement: Windows, macOS, Linux, and
+  other Bazel-supported platforms must be supported.

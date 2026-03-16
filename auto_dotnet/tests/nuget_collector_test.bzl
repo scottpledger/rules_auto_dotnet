@@ -157,6 +157,36 @@ def _case_insensitive_id_test_impl(ctx):
 
 case_insensitive_id_test = unittest.make(_case_insensitive_id_test_impl)
 
+def _malformed_dependency_metadata_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    collector = create_nuget_collector()
+
+    # Include malformed versions and empty package id; collector should degrade safely.
+    collector.add_package("", "1.0.0", "bad.csproj")  # ignored due to empty id
+    collector.add_package("OddVersionPkg", "vNext", "p1.csproj")
+    collector.add_package("OddVersionPkg", "1..2", "p2.csproj")
+    collector.add_package("OddVersionPkg", "1.0.0-preview..1", "p3.csproj")
+    collector.add_package("OddVersionPkg", "2.0.0", "p4.csproj")
+
+    resolved = collector.resolve_packages()
+    asserts.equals(env, 1, len(resolved))
+    asserts.equals(env, "OddVersionPkg", resolved[0].id)
+
+    # Highest parseable release version should still win.
+    asserts.equals(env, "2.0.0", resolved[0].version)
+
+    conflicts = collector.get_version_conflicts()
+    asserts.equals(env, 1, len(conflicts))
+    asserts.equals(env, "OddVersionPkg", conflicts[0].id)
+
+    # Conflict versions should be deterministic (sorted by version string).
+    asserts.equals(env, sorted(conflicts[0].versions), conflicts[0].versions)
+
+    return unittest.end(env)
+
+malformed_dependency_metadata_test = unittest.make(_malformed_dependency_metadata_test_impl)
+
 def nuget_collector_test_suite(name):
     unittest.suite(
         name,
@@ -167,4 +197,5 @@ def nuget_collector_test_suite(name):
         prerelease_version_test,
         empty_version_test,
         case_insensitive_id_test,
+        malformed_dependency_metadata_test,
     )

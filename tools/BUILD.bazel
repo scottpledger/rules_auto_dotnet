@@ -4,3 +4,7 @@ bazelrc_preset(
     name = "preset",
     doc_link_template = "https://registry.build/flag/bazel?filter={flag}",
 )
+
+exports_files([
+    "phase0_scale_benchmark.sh",
+])

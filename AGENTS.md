@@ -119,3 +119,87 @@ bazel test //e2e/smoke/...          # Run smoke test
 - The `@dotnet_projects` repository is generated at loading time; it's not
   checked into version control
 - All generated `.bzl` files load rules from `@rules_dotnet`, not from this repo
+
+## Enterprise Hardening Standards
+
+All new scanning/generation work must satisfy the following standards before merge.
+
+### Cross-Platform Support (Mandatory)
+
+- This project must support Windows, macOS, Linux, and other platforms supported
+  by Bazel.
+- New features must preserve cross-platform behavior in path handling, file
+  discovery, process execution, and generated output semantics.
+- Platform-specific logic must be documented and covered by tests where feasible;
+  do not introduce Unix-only assumptions.
+- CI must exercise at least one representative test path on Windows, macOS, and
+  Linux before cross-platform support can be considered verified.
+
+### Deterministic Generation
+
+- Generated outputs must be byte-stable for identical inputs across repeated runs.
+- All emitted collections must be explicitly sorted (deps, diagnostics, generated
+  list ordering, and any user-visible metadata arrays).
+- Do not rely on map/dict iteration order for generated file content.
+
+### Parser Safety and Resilience
+
+- Parsing failures in one project must not abort repository generation for other
+  projects.
+- Emit structured diagnostics for malformed inputs with:
+  - project path
+  - category
+  - message
+  - remediation hint (when known)
+- Unsupported syntax should degrade gracefully (warn/skip), not crash.
+
+### Paket Support Rules
+
+- Treat Paket as first-class when `<Import Project=".../.paket/Paket.Restore.targets" />`
+  is present.
+- Read `paket.references` at most once per relevant project.
+- For `paket.references` parsing:
+  - ignore blank lines and comments
+  - support package IDs and `nuget <id>` lines
+  - skip unsupported directives with diagnostics
+
+### InternalsVisibleTo Handling
+
+- Explicit `InternalsVisibleTo` declarations are the source of truth.
+- Heuristic checks based on project-reference graph are advisory by default.
+- Matching must account for case normalization and optional public key suffixes.
+- Ambiguous friend-assembly matches must produce actionable diagnostics.
+
+### Diagnostics Policy
+
+- New diagnostics should support policy control (`off|warn|strict`) where
+  appropriate.
+- In `strict` mode, collect all findings first, then fail with a complete report.
+- Prefer both machine-readable and human-readable diagnostics artifacts.
+
+### Toolchain Contract and Adoption
+
+- `rules_dotnet` is the single source of truth for actual .NET toolchain
+  registration (`use_repo(...)` + `register_toolchains(...)`).
+- `rules_auto_dotnet` must not implicitly register toolchains; it should only
+  validate compatibility between discovered TFMs and declared toolchain metadata.
+- Generated targets and manually-authored targets must be able to coexist and
+  resolve against the same globally registered rules_dotnet toolchains.
+- When both extensions declare toolchain metadata, add consistency diagnostics for
+  name/version drift; support `warn` and `strict` policy modes.
+- Keep docs/examples for incremental migration where only some projects use
+  generated macros and others remain manual.
+
+### Scalability and Performance
+
+- Repository-rule logic should scale near-linearly with project count.
+- Avoid repeated file IO and repeated expensive path normalization.
+- Maintain benchmark fixtures and guardrails for synthetic large repositories
+  (100/500/1000 projects) and fail CI on significant regressions.
+
+### Testing Expectations
+
+- Add unit tests for happy-path, malformed input, and edge-case parsing behavior.
+- Add determinism tests (run generation multiple times, assert identical output).
+- Add diagnostics-policy tests (`off|warn|strict`) for each diagnostic category.
+- Update design docs when behavior or supported syntax changes.

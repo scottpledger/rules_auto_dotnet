@@ -74,7 +74,8 @@ def generate_project_bzl(
         lines.append('        project_sdk = "{}",'.format(project_sdk))
 
     # Additional attributes from properties
-    for attr_name, attr_value in additional_attrs.items():
+    for attr_name in sorted(additional_attrs.keys()):
+        attr_value = additional_attrs[attr_name]
         if type(attr_value) == "bool":
             lines.append("        {} = {},".format(attr_name, "True" if attr_value else "False"))
         elif type(attr_value) == "int":
@@ -169,7 +170,7 @@ def _project_reference_to_label(ref_path, project_dir):
     filename = paths.basename(resolved)
 
     # Remove file extension to get target name using paths.split_extension
-    target_name, _ext = paths.split_extension(filename)
+    target_name = paths.split_extension(filename)[0]
 
     # Build the label
     if dir_path:

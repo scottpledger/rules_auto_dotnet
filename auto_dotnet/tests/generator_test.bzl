@@ -199,6 +199,33 @@ def _kwargs_passthrough_test_impl(ctx):
 
 kwargs_passthrough_test = unittest.make(_kwargs_passthrough_test_impl)
 
+def _deterministic_generation_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    parsed = parse_project_file(_TEST_LIBRARY_CSPROJ)
+    first = generate_project_bzl(
+        parsed,
+        "my/path/lib.csproj",
+        "my/path",
+        False,
+        "csproj.nuget",
+        "",
+    )
+    second = generate_project_bzl(
+        parsed,
+        "my/path/lib.csproj",
+        "my/path",
+        False,
+        "csproj.nuget",
+        "",
+    )
+
+    asserts.equals(env, first, second)
+
+    return unittest.end(env)
+
+deterministic_generation_test = unittest.make(_deterministic_generation_test_impl)
+
 def generator_test_suite(name):
     unittest.suite(
         name,
@@ -210,4 +237,5 @@ def generator_test_suite(name):
         generate_root_build_bazel_test,
         generate_subdir_build_bazel_test,
         kwargs_passthrough_test,
+        deterministic_generation_test,
     )

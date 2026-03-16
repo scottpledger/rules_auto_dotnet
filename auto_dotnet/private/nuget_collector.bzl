@@ -93,13 +93,16 @@ def create_nuget_collector():
 
         for normalized_id in sorted(packages.keys()):
             pkg = packages[normalized_id]
-            versions = list(pkg.versions.keys())
+            versions = sorted(pkg.versions.keys())
 
             if len(versions) > 1:
+                sorted_sources = {}
+                for version in versions:
+                    sorted_sources[version] = sorted(pkg.versions[version])
                 conflicts.append(struct(
                     id = pkg.id,
                     versions = versions,
-                    sources = pkg.versions,
+                    sources = sorted_sources,
                 ))
 
         return conflicts
