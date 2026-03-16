@@ -1,10 +1,17 @@
 bazel_dep(name = "rules_auto_dotnet", version = "0.0.0", dev_dependency = True)
 bazel_dep(name = "bazel_skylib", version = "1.8.2", dev_dependency = True)
+bazel_dep(name = "rules_python", version = "1.7.0", dev_dependency = True)
 
 local_path_override(
     module_name = "rules_auto_dotnet",
     path = "../..",
 )
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.11")
+use_repo(python, "python_3_11")
+
+register_toolchains("@python_3_11//:all")
 
 auto_dotnet = use_extension("@rules_auto_dotnet//auto_dotnet:extensions.bzl", "auto_dotnet")
 auto_dotnet.toolchain(dotnet_version = "10.0.100")
