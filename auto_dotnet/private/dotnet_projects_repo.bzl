@@ -32,7 +32,13 @@ def _find_project_files(repository_ctx, workspace_dir, exclude_patterns):
     filtered = []
     for path in project_files:
         # Normalize to forward slashes for consistent matching
-        normalized = path.replace("\\", "/")
+        normalized = paths.normalize(path.replace("\\", "/"))
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+        if normalized.startswith("/"):
+            normalized = normalized[1:]
+        if not normalized or normalized == "." or normalized.startswith("../"):
+            continue
         if not _matches_exclude(normalized, exclude_patterns):
             filtered.append(normalized)
 
@@ -80,7 +86,12 @@ def _find_project_files_unix(repository_ctx, workspace_dir):
     result = repository_ctx.execute(find_args, timeout = 60)
 
     if result.return_code != 0:
-        return []
+        fail("Failed to discover project files via find (exit code {}): {}\nworkspace: {}\ncommand: {}".format(
+            result.return_code,
+            result.stderr.strip() if result.stderr else "unknown error",
+            workspace_dir,
+            " ".join(find_args),
+        ))
 
     project_files = []
     workspace_str = str(workspace_dir)
@@ -121,24 +132,30 @@ Get-ChildItem -Path '{}' -Recurse -Include *.csproj,*.fsproj |
     ForEach-Object {{ $_.FullName }}
 """.format(str(workspace_dir).replace("'", "''"))
 
-    result = repository_ctx.execute(
+    ps_result = repository_ctx.execute(
         ["powershell", "-NoProfile", "-Command", ps_script],
         timeout = 120,
     )
 
-    if result.return_code == 0 and result.stdout.strip():
-        return _parse_windows_paths(result.stdout, str(workspace_dir))
+    if ps_result.return_code == 0 and ps_result.stdout.strip():
+        return _parse_windows_paths(ps_result.stdout, str(workspace_dir))
 
     # Fallback to cmd.exe dir command
-    result = repository_ctx.execute(
+    cmd_result = repository_ctx.execute(
         ["cmd", "/c", "dir", "/s", "/b", str(workspace_dir) + "\\*.csproj", str(workspace_dir) + "\\*.fsproj"],
         timeout = 120,
     )
 
-    if result.return_code == 0:
-        return _parse_windows_paths(result.stdout, str(workspace_dir))
+    if cmd_result.return_code == 0:
+        return _parse_windows_paths(cmd_result.stdout, str(workspace_dir))
 
-    return []
+    fail("Failed to discover project files on Windows.\nPowerShell exit code: {} stderr: {}\ncmd exit code: {} stderr: {}\nworkspace: {}".format(
+        ps_result.return_code,
+        ps_result.stderr.strip() if ps_result.stderr else "none",
+        cmd_result.return_code,
+        cmd_result.stderr.strip() if cmd_result.stderr else "none",
+        workspace_dir,
+    ))
 
 def _parse_windows_paths(output, workspace_dir):
     """Parse Windows command output and convert to relative paths.
