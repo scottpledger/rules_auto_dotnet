@@ -103,6 +103,14 @@ Initial local run result during Phase 0:
 - **Cross-platform verification**: met at baseline level. CI now includes a
   Windows/macOS/Linux smoke matrix for representative parser/generator targets.
 
+## Phase 0 Exit Criteria Met
+
+- Deterministic generation and deterministic diagnostics ordering are in place.
+- Structured diagnostics artifacts (`diagnostics.json`, `DIAGNOSTICS.md`) are emitted.
+- Diagnostics policy controls are available for toolchain/parser/paket/internals checks.
+- Parser error handling remains non-fatal in warn/off modes and isolated per project.
+- Baseline cross-platform coverage is enforced in CI (Linux/macOS/Windows).
+
 ## Cross-Platform Audit Snapshot
 
 - **Implemented**:

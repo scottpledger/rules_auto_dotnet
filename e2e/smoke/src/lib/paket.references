@@ -1,0 +1,3 @@
+# Paket references for Lib project
+Newtonsoft.Json
+nuget Serilog

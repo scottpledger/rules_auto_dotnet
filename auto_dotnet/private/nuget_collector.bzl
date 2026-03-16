@@ -266,7 +266,7 @@ def generate_nuget_packages_bzl(packages, repo_name = "dotnet_projects.nuget"):
     """Generate the content of a packages.bzl file.
 
     Note: The generated file creates placeholder entries. For full NuGet support,
-    users should use packet2bazel to generate complete package definitions with
+    users should use paket2bazel to generate complete package definitions with
     SHA512 hashes, sources, and dependency information.
 
     Args:
@@ -281,11 +281,11 @@ def generate_nuget_packages_bzl(packages, repo_name = "dotnet_projects.nuget"):
         "",
         "# NOTE: This file contains package references extracted from .csproj files.",
         "# For full NuGet support with SHA512 verification and dependency resolution,",
-        "# consider using Packet and packet2bazel instead.",
+        "# consider using Paket and paket2bazel instead.",
         "#",
-        "# To use Packet:",
-        "# 1. Create a packet.dependencies file with the packages below",
-        "# 2. Run: dotnet tool run packet install",
+        "# To use Paket:",
+        "# 1. Create a paket.dependencies file with the packages below",
+        "# 2. Run: dotnet tool run paket install",
         "# 3. Run: bazel run @rules_dotnet//tools/paket2bazel -- \\\\",
         "#          --dependencies-file $(pwd)/paket.dependencies \\\\",
         "#          --output-folder $(pwd)",
@@ -301,7 +301,7 @@ def generate_nuget_packages_bzl(packages, repo_name = "dotnet_projects.nuget"):
         "    WARNING: This generated file uses placeholder SHA512 values.",
         "    The first build will fail with hash mismatch errors.",
         "    Update the sha512 values with the correct hashes from the error messages,",
-        "    or use packet2bazel for proper package resolution.",
+        "    or use paket2bazel for proper package resolution.",
         '    """',
         "    nuget_repo(",
         '        name = "{}",'.format(repo_name),
@@ -333,20 +333,20 @@ def generate_nuget_packages_bzl(packages, repo_name = "dotnet_projects.nuget"):
 
     return "\n".join(lines)
 
-def generate_packet_dependencies(packages):
-    """Generate a packet.dependencies file from collected packages.
+def generate_paket_dependencies(packages):
+    """Generate a paket.dependencies file from collected packages.
 
-    This can be used to bootstrap Packet integration.
+    This can be used to bootstrap Paket integration.
 
     Args:
         packages: List of resolved package structs with id and version.
 
     Returns:
-        String content of a packet.dependencies file.
+        String content of a paket.dependencies file.
     """
     lines = [
-        "# Generated packet.dependencies from .csproj files",
-        "# Run 'dotnet tool run packet install' to resolve dependencies",
+        "# Generated paket.dependencies from .csproj files",
+        "# Run 'dotnet tool run paket install' to resolve dependencies",
         "",
         "source https://api.nuget.org/v3/index.json",
         "storage: none",

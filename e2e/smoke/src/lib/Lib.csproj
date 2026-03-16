@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../.paket/Paket.Restore.targets" />
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>Lib</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Lib.cs" />
+    <InternalsVisibleTo Include="App" />
+  </ItemGroup>
+</Project>

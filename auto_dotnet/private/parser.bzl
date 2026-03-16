@@ -31,6 +31,8 @@ def parse_project_file(content):
             sources = [],
             project_references = [],
             package_references = [],
+            internals_visible_to = [],
+            uses_paket = False,
             properties = {},
             enable_default_items = True,
             is_fsharp = False,
@@ -46,6 +48,8 @@ def parse_project_file(content):
             sources = [],
             project_references = [],
             package_references = [],
+            internals_visible_to = [],
+            uses_paket = False,
             properties = {},
             enable_default_items = True,
             is_fsharp = False,
@@ -77,6 +81,12 @@ def parse_project_file(content):
     # Extract package references
     package_references = _extract_package_references(root)
 
+    # Detect Paket import usage
+    uses_paket = _has_paket_restore_import(root)
+
+    # Extract explicit InternalsVisibleTo declarations
+    internals_visible_to = _extract_internals_visible_to(root)
+
     return struct(
         sdk = sdk,
         target_frameworks = target_frameworks,
@@ -84,6 +94,8 @@ def parse_project_file(content):
         sources = sources,
         project_references = project_references,
         package_references = package_references,
+        internals_visible_to = internals_visible_to,
+        uses_paket = uses_paket,
         properties = properties,
         enable_default_items = enable_default_items,
         is_fsharp = False,  # Will be set by caller based on file extension
@@ -207,6 +219,70 @@ def _extract_package_references(root):
 
     return packages
 
+def _has_paket_restore_import(root):
+    """Check whether the project imports Paket restore targets."""
+    for import_elem in xml.find_elements_by_tag_name(root, "Import"):
+        project_attr = xml.get_attribute(import_elem, "Project", "")
+        if not project_attr:
+            continue
+        normalized = project_attr.replace("\\", "/").lower()
+        if ".paket/paket.restore.targets" in normalized:
+            return True
+    return False
+
+def _extract_internals_visible_to(root):
+    """Extract explicit InternalsVisibleTo friend assembly names."""
+    names = {}
+
+    for item_group in xml.find_elements_by_tag_name(root, "ItemGroup"):
+        for friend in xml.find_elements_by_tag_name(item_group, "InternalsVisibleTo"):
+            include = xml.get_attribute(friend, "Include", "")
+            normalized = _normalize_friend_assembly_name(include)
+            if normalized:
+                names[normalized] = True
+
+        for attr in xml.find_elements_by_tag_name(item_group, "AssemblyAttribute"):
+            include = xml.get_attribute(attr, "Include", "")
+            if "internalsvisibleto" not in include.lower():
+                continue
+
+            # Most SDK-style projects encode assembly attribute args in _Parameter1.
+            param = ""
+            param_elem = xml.find_element_by_tag_name(attr, "_Parameter1")
+            if param_elem:
+                text = xml.get_text(param_elem)
+                if text:
+                    param = text.strip()
+
+            if not param:
+                # Fallback: first child text if _Parameter1 is not present.
+                children = xml.get_child_elements(attr)
+                if children:
+                    text = xml.get_text(children[0])
+                    if text:
+                        param = text.strip()
+
+            normalized = _normalize_friend_assembly_name(param)
+            if normalized:
+                names[normalized] = True
+
+    return sorted(names.keys())
+
+def _normalize_friend_assembly_name(value):
+    """Normalize InternalsVisibleTo value to the assembly name."""
+    if not value:
+        return ""
+
+    cleaned = value.strip().strip('"').strip("'")
+    if not cleaned:
+        return ""
+
+    # Friend assembly declarations may include public key metadata after a comma.
+    if "," in cleaned:
+        cleaned = cleaned.split(",", 1)[0].strip()
+
+    return cleaned
+
 def get_project_type(parsed_project):
     """Determine the Bazel rule type for a parsed project.
 
@@ -250,11 +326,14 @@ def get_project_sdk_attr(parsed_project):
         parsed_project: A struct returned by parse_project_file.
 
     Returns:
-        "web" if this is a web SDK project, None otherwise.
+        A normalized project_sdk attribute value.
     """
-    if "Web" in parsed_project.sdk:
+    sdk = parsed_project.sdk or "Microsoft.NET.Sdk"
+    sdk_lower = sdk.lower()
+
+    if ".web" in sdk_lower:
         return "web"
-    return None
+    return "default"
 
 def extract_additional_attrs(parsed_project):
     """Extract additional Bazel attributes from project properties.

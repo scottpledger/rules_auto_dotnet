@@ -6,6 +6,22 @@ Target Framework Moniker (TFM) validation ensures that the .NET SDK toolchains
 registered by the user can build all the target frameworks discovered in the
 workspace's project files.
 
+## Toolchain Contract
+
+`rules_dotnet` remains the single source of truth for actual SDK/toolchain
+registration (`register_toolchains(...)`).
+
+`rules_auto_dotnet` does not register toolchains. It only validates coverage
+using metadata declared via `auto_dotnet.toolchain(...)` and scan results from
+project files.
+
+Because extensions do not directly introspect each other's raw tag declarations,
+the practical contract is:
+
+- keep `dotnet.toolchain(...)` and `auto_dotnet.toolchain(...)` declarations aligned,
+- let `rules_dotnet` own registration/runtime behavior,
+- let `rules_auto_dotnet` own validation diagnostics and reporting.
+
 ## How It Works
 
 After scanning all project files, the extension collects every unique TFM and
@@ -71,6 +87,29 @@ auto_dotnet.scan_projects()
 
 In this setup, `net10.0` is only covered by `dotnet_10`, while `net9.0` and `net8.0`
 are covered by both toolchains.
+
+## Gradual Adoption Pattern
+
+Manual and generated targets can coexist in one repo and rely on the same
+globally registered `rules_dotnet` toolchains:
+
+```starlark
+# MODULE.bazel
+dotnet = use_extension("@rules_dotnet//dotnet:extensions.bzl", "dotnet")
+dotnet.toolchain(dotnet_version = "10.0.100")
+use_repo(dotnet, "dotnet_toolchains")
+register_toolchains("@dotnet_toolchains//:all")
+
+auto_dotnet = use_extension("@rules_auto_dotnet//auto_dotnet:extensions.bzl", "auto_dotnet")
+auto_dotnet.toolchain(dotnet_version = "10.0.100")
+auto_dotnet.scan_projects(
+    toolchain_diagnostics = "warn",
+)
+use_repo(auto_dotnet, "dotnet_projects")
+```
+
+In BUILD files, user-authored targets and generated macros resolve through the
+same registered toolchains.
 
 ### Coverage Report
 

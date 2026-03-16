@@ -92,6 +92,8 @@ You can also configure diagnostics policy explicitly:
 auto_dotnet.scan_projects(
     toolchain_diagnostics = "warn",  # off | warn | strict
     parser_diagnostics = "warn",     # off | warn | strict
+    paket_diagnostics = "warn",      # off | warn | strict
+    internals_visibility_diagnostics = "warn",  # off | warn | strict
     emit_diagnostics_report = True,  # writes diagnostics.json + DIAGNOSTICS.md
 )
 ```

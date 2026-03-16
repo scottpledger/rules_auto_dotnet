@@ -39,6 +39,24 @@ Allowed values: "off", "warn", "strict".
 - warn: emit warnings and continue (default)
 - strict: fail after collecting diagnostics""",
     ),
+    "paket_diagnostics": attr.string(
+        default = "warn",
+        doc = """Severity for Paket diagnostics.
+
+Allowed values: "off", "warn", "strict".
+- off: ignore Paket diagnostics
+- warn: emit warnings and continue (default)
+- strict: fail after collecting diagnostics""",
+    ),
+    "internals_visibility_diagnostics": attr.string(
+        default = "warn",
+        doc = """Severity for InternalsVisibleTo diagnostics.
+
+Allowed values: "off", "warn", "strict".
+- off: ignore internals visibility diagnostics
+- warn: emit warnings and continue (default)
+- strict: fail after collecting diagnostics""",
+    ),
     "emit_diagnostics_report": attr.bool(
         default = True,
         doc = "If true, generate DIAGNOSTICS.md and diagnostics.json in @dotnet_projects.",
@@ -98,6 +116,8 @@ def _auto_dotnet_extension(module_ctx):
             fail_on_missing_toolchain = scan_config.fail_on_missing_toolchain,
             toolchain_diagnostics = scan_config.toolchain_diagnostics,
             parser_diagnostics = scan_config.parser_diagnostics,
+            paket_diagnostics = scan_config.paket_diagnostics,
+            internals_visibility_diagnostics = scan_config.internals_visibility_diagnostics,
             emit_diagnostics_report = scan_config.emit_diagnostics_report,
         )
         repos_to_return.append("dotnet_projects")

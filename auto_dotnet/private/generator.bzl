@@ -2,6 +2,7 @@
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load(":parser.bzl", "extract_additional_attrs", "get_bazel_rule_name", "get_project_sdk_attr")
+load(":path_utils.bzl", "resolve_relative_path")
 
 def generate_project_bzl(
         parsed_project,
@@ -9,7 +10,8 @@ def generate_project_bzl(
         project_dir,
         is_fsharp,
         nuget_repo_name = "dotnet_projects.nuget",
-        workspace_root = ""):
+        workspace_root = "",
+        internals_visible_to_labels = []):
     """Generate the .bzl file content for a single project.
 
     Args:
@@ -19,6 +21,7 @@ def generate_project_bzl(
         is_fsharp: Whether this is an F# project.
         nuget_repo_name: Name of the NuGet repository.
         workspace_root: The workspace root for label resolution.
+        internals_visible_to_labels: Labels to set in internals_visible_to.
 
     Returns:
         String content of the .bzl file.
@@ -72,6 +75,13 @@ def generate_project_bzl(
     # Project SDK
     if project_sdk:
         lines.append('        project_sdk = "{}",'.format(project_sdk))
+
+    # Friend assemblies mapped to Bazel labels.
+    if internals_visible_to_labels:
+        lines.append("        internals_visible_to = [")
+        for label in sorted(internals_visible_to_labels):
+            lines.append('            "{}",'.format(label))
+        lines.append("        ],")
 
     # Additional attributes from properties
     for attr_name in sorted(additional_attrs.keys()):
@@ -140,7 +150,7 @@ def _generate_deps(parsed_project, project_dir, nuget_repo_name, _workspace_root
         label = "@{}//{}".format(nuget_repo_name, pkg_ref.id.lower())
         deps.append(label)
 
-    return deps
+    return sorted(deps)
 
 def _project_reference_to_label(ref_path, project_dir):
     """Convert a ProjectReference path to a Bazel label.
@@ -161,7 +171,7 @@ def _project_reference_to_label(ref_path, project_dir):
     ref_path = ref_path.replace("\\", "/")
 
     # Resolve relative path components
-    resolved = _resolve_relative_path(project_dir, ref_path)
+    resolved = resolve_relative_path(project_dir, ref_path)
     if resolved == None:
         return None
 
@@ -177,33 +187,6 @@ def _project_reference_to_label(ref_path, project_dir):
         return "//{}:{}".format(dir_path, target_name)
     else:
         return ":{}".format(target_name)
-
-def _resolve_relative_path(base_dir, rel_path):
-    """Resolve a relative path against a base directory.
-
-    Uses paths.normalize from bazel_skylib to handle path normalization.
-
-    Args:
-        base_dir: The base directory path.
-        rel_path: The relative path to resolve.
-
-    Returns:
-        The resolved path, or None if it goes above workspace root.
-    """
-
-    # Join the paths and normalize
-    joined = paths.join(base_dir, rel_path) if base_dir else rel_path
-    normalized = paths.normalize(joined)
-
-    # Check if the path goes above workspace root (starts with ..)
-    if normalized.startswith(".."):
-        return None
-
-    # Handle the case where normalize returns "." for empty paths
-    if normalized == ".":
-        return ""
-
-    return normalized
 
 def generate_defs_bzl():
     """Generate the root defs.bzl file for the @dotnet_projects repository.
@@ -226,7 +209,11 @@ def generate_root_build_bazel():
     return '''# Generated BUILD.bazel for @dotnet_projects repository
 # This file exports the generated .bzl files.
 
-exports_files(glob(["**/*.bzl"]))
+exports_files(glob([
+    "**/*.bzl",
+    "*.md",
+    "*.json",
+]))
 '''
 
 def generate_subdir_build_bazel(bzl_files):

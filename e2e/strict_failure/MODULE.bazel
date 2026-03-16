@@ -14,8 +14,8 @@ auto_dotnet.scan_projects(
         "**/.git/**",
         "**/bazel-*/**",
     ],
-    internals_visibility_diagnostics = "warn",
-    paket_diagnostics = "warn",
+    internals_visibility_diagnostics = "strict",
+    paket_diagnostics = "strict",
     parser_diagnostics = "warn",
     toolchain_diagnostics = "warn",
 )

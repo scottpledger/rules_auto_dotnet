@@ -13,6 +13,8 @@ management across the workspace.
 2. Package IDs are normalized to lowercase for deduplication (NuGet IDs are
    case-insensitive)
 3. The original casing of the first occurrence is preserved for display
+4. For projects importing `Paket.Restore.targets`, sibling `paket.references`
+   IDs are parsed and merged before global deduplication
 
 ## Version Conflict Resolution
 
@@ -66,14 +68,23 @@ def dotnet_nuget_packages():
 will fail with hash mismatch errors. Users should either:
 
 1. Update the SHA512 values from the error messages, or
-2. Use [Packet](https://fsprojects.github.io/Paket/) with `packet2bazel` for
+2. Use [Paket](https://fsprojects.github.io/Paket/) with `paket2bazel` for
    proper dependency resolution (recommended for production)
 
-### packet.dependencies.generated
+### paket.dependencies.generated
 
-A Packet-compatible `packet.dependencies` file is generated to bootstrap Packet
+A Paket-compatible `paket.dependencies` file is generated to bootstrap Paket
 integration. Users can copy this to their workspace root and run
-`dotnet tool run packet install` to get a proper lock file.
+`dotnet tool run paket install` to get a proper lock file.
+
+### Paket Side-File Semantics
+
+`paket.references` handling is intentionally conservative:
+
+- Parsed only for projects that import `Paket.Restore.targets`.
+- Missing `paket.references` produces diagnostics (category `paket`) according to
+  `paket_diagnostics` mode (`off|warn|strict`).
+- Unsupported `paket.references` directives are ignored instead of failing parse.
 
 ## Limitations
 
@@ -83,3 +94,5 @@ integration. Users can copy this to their workspace root and run
   project files are collected)
 - Version ranges (e.g., `[1.0, 2.0)`) are not fully interpreted; the literal
   string is used
+- `paket.references` does not currently model full Paket group/source semantics;
+  it only contributes package IDs for dependency bootstrap and deduplication

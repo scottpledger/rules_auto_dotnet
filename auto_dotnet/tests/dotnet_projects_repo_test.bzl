@@ -4,8 +4,11 @@ load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load(
     "//auto_dotnet/private:dotnet_projects_repo.bzl",
     "apply_parser_errors_for_test",
+    "apply_policy_diagnostic_for_test",
     "diagnostics_mode_is_valid_for_test",
     "diagnostics_outputs_for_test",
+    "merge_package_references_for_test",
+    "parse_paket_references_for_test",
     "sorted_diagnostics_for_test",
 )
 
@@ -114,6 +117,65 @@ def _apply_parser_errors_test_impl(ctx):
 
 apply_parser_errors_test = unittest.make(_apply_parser_errors_test_impl)
 
+def _paket_references_parse_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    parsed = parse_paket_references_for_test("""
+# comment
+nuget Newtonsoft.Json
+Serilog
+framework: net9.0
+nuget Microsoft.Extensions.Logging >= 8.0.0
+""")
+
+    asserts.equals(env, ["Microsoft.Extensions.Logging", "Newtonsoft.Json", "Serilog"], parsed)
+
+    return unittest.end(env)
+
+paket_references_parse_test = unittest.make(_paket_references_parse_test_impl)
+
+def _merge_package_references_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    existing = [
+        struct(id = "Newtonsoft.Json", version = "13.0.3"),
+    ]
+    merged = merge_package_references_for_test(
+        existing,
+        ["Newtonsoft.Json", "Serilog"],
+    )
+
+    asserts.equals(env, 2, len(merged))
+    asserts.equals(env, "Newtonsoft.Json", merged[0].id)
+    asserts.equals(env, "13.0.3", merged[0].version)
+    asserts.equals(env, "Serilog", merged[1].id)
+    asserts.equals(env, "", merged[1].version)
+
+    return unittest.end(env)
+
+merge_package_references_test = unittest.make(_merge_package_references_test_impl)
+
+def _policy_diagnostic_modes_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    off_result = apply_policy_diagnostic_for_test("off", "paket", "missing refs")
+    asserts.equals(env, 0, len(off_result.diagnostics))
+    asserts.equals(env, 0, len(off_result.strict_failures))
+
+    warn_result = apply_policy_diagnostic_for_test("warn", "paket", "missing refs")
+    asserts.equals(env, 1, len(warn_result.diagnostics))
+    asserts.equals(env, "warning", warn_result.diagnostics[0]["severity"])
+    asserts.equals(env, 0, len(warn_result.strict_failures))
+
+    strict_result = apply_policy_diagnostic_for_test("strict", "paket", "missing refs")
+    asserts.equals(env, 1, len(strict_result.diagnostics))
+    asserts.equals(env, "error", strict_result.diagnostics[0]["severity"])
+    asserts.equals(env, 1, len(strict_result.strict_failures))
+
+    return unittest.end(env)
+
+policy_diagnostic_modes_test = unittest.make(_policy_diagnostic_modes_test_impl)
+
 def dotnet_projects_repo_test_suite(name):
     unittest.suite(
         name,
@@ -121,4 +183,7 @@ def dotnet_projects_repo_test_suite(name):
         sorted_diagnostics_test,
         diagnostics_outputs_test,
         apply_parser_errors_test,
+        paket_references_parse_test,
+        merge_package_references_test,
+        policy_diagnostic_modes_test,
     )

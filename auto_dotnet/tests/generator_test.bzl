@@ -66,6 +66,7 @@ def _generate_library_bzl_test_impl(ctx):
     asserts.true(env, '"lib.cs"' in bzl_content)
     asserts.true(env, 'target_frameworks = ["net9.0"]' in bzl_content)
     asserts.true(env, "@csproj.nuget//newtonsoft.json" in bzl_content)
+    asserts.true(env, 'project_sdk = "default"' in bzl_content)
     asserts.true(env, 'nullable = "enable"' in bzl_content)
 
     return unittest.end(env)
@@ -199,6 +200,28 @@ def _kwargs_passthrough_test_impl(ctx):
 
 kwargs_passthrough_test = unittest.make(_kwargs_passthrough_test_impl)
 
+def _internals_visible_to_generation_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    parsed = parse_project_file(_TEST_LIBRARY_CSPROJ)
+    bzl_content = generate_project_bzl(
+        parsed,
+        "my/path/lib.csproj",
+        "my/path",
+        False,
+        "csproj.nuget",
+        "",
+        ["//app:Program", "//tests:LibTests"],
+    )
+
+    asserts.true(env, "internals_visible_to = [" in bzl_content)
+    asserts.true(env, '"//app:Program"' in bzl_content)
+    asserts.true(env, '"//tests:LibTests"' in bzl_content)
+
+    return unittest.end(env)
+
+internals_visible_to_generation_test = unittest.make(_internals_visible_to_generation_test_impl)
+
 def _deterministic_generation_test_impl(ctx):
     env = unittest.begin(ctx)
 
@@ -238,4 +261,5 @@ def generator_test_suite(name):
         generate_subdir_build_bazel_test,
         kwargs_passthrough_test,
         deterministic_generation_test,
+        internals_visible_to_generation_test,
     )

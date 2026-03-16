@@ -40,6 +40,20 @@ jobs:
       - uses: bazelbuild/setup-bazelisk@v3
       - name: Run cross-platform representative tests
         run: bazel test //auto_dotnet/tests:parser_test //auto_dotnet/tests:generator_test
+  strict-diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: bazelbuild/setup-bazelisk@v3
+      - name: Verify strict diagnostics fail end-to-end
+        run: bash e2e/strict_failure/verify_strict_failure.sh
+  scale-guardrail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: bazelbuild/setup-bazelisk@v3
+      - name: Enforce Phase 0 scale guardrail
+        run: bash tools/phase0_scale_benchmark.sh 20
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -48,7 +62,7 @@ jobs:
   # For branch protection settings, this job provides a "stable" name that can be used to gate PR merges
   # on "all matrix jobs were successful".
   conclusion:
-    needs: [test, cross-platform-smoke, pre-commit]
+    needs: [test, cross-platform-smoke, strict-diagnostics, scale-guardrail, pre-commit]
     runs-on: ubuntu-latest
     if: always()
     steps:
