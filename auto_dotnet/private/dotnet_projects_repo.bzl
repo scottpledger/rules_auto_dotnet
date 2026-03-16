@@ -20,188 +20,79 @@ def _find_project_files(repository_ctx, workspace_dir, exclude_patterns):
         List of project file paths relative to workspace root.
     """
 
-    # Detect platform and use appropriate command
-    is_windows = repository_ctx.os.name.startswith("windows")
-
-    if is_windows:
-        project_files = _find_project_files_windows(repository_ctx, workspace_dir)
-    else:
-        project_files = _find_project_files_unix(repository_ctx, workspace_dir)
-
-    # Apply exclude patterns (cross-platform filtering)
-    filtered = []
-    for path in project_files:
-        # Normalize to forward slashes for consistent matching
-        normalized = paths.normalize(path.replace("\\", "/"))
-        if normalized.startswith("./"):
-            normalized = normalized[2:]
-        if normalized.startswith("/"):
-            normalized = normalized[1:]
-        if not normalized or normalized == "." or normalized.startswith("../"):
-            continue
-        if not _matches_exclude(normalized, exclude_patterns):
-            filtered.append(normalized)
-
-    return sorted(filtered)
-
-def _find_project_files_unix(repository_ctx, workspace_dir):
-    """Find project files on Unix systems using find command.
-
-    Args:
-        repository_ctx: The repository context.
-        workspace_dir: Path to the workspace root.
-
-    Returns:
-        List of project file paths relative to workspace root.
-    """
-    find_args = [
-        "find",
-        str(workspace_dir),
-        "-type",
-        "f",
-        "(",
-        "-name",
-        "*.csproj",
-        "-o",
-        "-name",
-        "*.fsproj",
-        ")",
-        "-not",
-        "-path",
-        "*/bin/*",
-        "-not",
-        "-path",
-        "*/obj/*",
-        "-not",
-        "-path",
-        "*/.git/*",
-        "-not",
-        "-path",
-        "*/.jj/*",
-        "-not",
-        "-path",
-        "*/bazel-*/*",
-    ]
-
-    result = repository_ctx.execute(find_args, timeout = 60)
-
-    if result.return_code != 0:
-        fail("Failed to discover project files via find (exit code {}): {}\nworkspace: {}\ncommand: {}".format(
-            result.return_code,
-            result.stderr.strip() if result.stderr else "unknown error",
-            workspace_dir,
-            " ".join(find_args),
-        ))
-
     project_files = []
     workspace_str = str(workspace_dir)
+    pending_dirs = [repository_ctx.path(workspace_dir)]
 
-    for line in result.stdout.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
+    # Starlark does not support while loops, so we emulate a queue walk with
+    # a bounded for-loop and break once all discovered directories are visited.
+    for next_dir_index in range(1000000):
+        if next_dir_index >= len(pending_dirs):
+            break
+        current_dir = pending_dirs[next_dir_index]
+        entries = _sorted_path_entries(current_dir.readdir())
+        for entry in entries:
+            child = _as_path_obj(current_dir, entry)
+            child_str = str(child)
+            rel_raw = child_str[len(workspace_str):] if child_str.startswith(workspace_str) else child_str
+            rel_path = _normalize_relative_path(rel_raw)
+            if not rel_path:
+                continue
+            if _matches_exclude(rel_path, exclude_patterns):
+                continue
 
-        # Make path relative to workspace
-        if line.startswith(workspace_str):
-            rel_path = line[len(workspace_str):]
-            if rel_path.startswith("/"):
-                rel_path = rel_path[1:]
-        else:
-            rel_path = line
+            name = _path_entry_name(child)
+            is_dir = hasattr(child, "is_dir") and child.is_dir
+            if is_dir:
+                if _is_pruned_dir_name(name):
+                    continue
+                pending_dirs.append(child)
+                continue
 
-        project_files.append(rel_path)
+            lower_name = name.lower()
+            if lower_name.endswith(".csproj") or lower_name.endswith(".fsproj"):
+                project_files.append(rel_path)
 
-    return project_files
+    return sorted(project_files)
 
-def _find_project_files_windows(repository_ctx, workspace_dir):
-    """Find project files on Windows using PowerShell or cmd.
+def _normalize_relative_path(path):
+    normalized = paths.normalize(path.replace("\\", "/"))
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    if normalized.startswith("/"):
+        normalized = normalized[1:]
+    if not normalized or normalized == "." or normalized.startswith("../"):
+        return None
+    return normalized
 
-    Args:
-        repository_ctx: The repository context.
-        workspace_dir: Path to the workspace root.
+def _path_entry_name(path_obj):
+    if hasattr(path_obj, "basename"):
+        return path_obj.basename
+    text = str(path_obj).replace("\\", "/")
+    if "/" in text:
+        return text.rsplit("/", 1)[1]
+    return text
 
-    Returns:
-        List of project file paths relative to workspace root.
-    """
+def _as_path_obj(parent, entry):
+    if type(entry) == "string":
+        return parent.get_child(entry)
+    return entry
 
-    # Try PowerShell first (more reliable, handles exclusions better)
-    ps_script = """
-$ErrorActionPreference = 'SilentlyContinue'
-Get-ChildItem -Path '{}' -Recurse -Include *.csproj,*.fsproj |
-    Where-Object {{ $_.FullName -notmatch '\\\\(bin|obj|\\.git|\\.jj|bazel-)\\\\' }} |
-    ForEach-Object {{ $_.FullName }}
-""".format(str(workspace_dir).replace("'", "''"))
+def _sorted_path_entries(entries):
+    by_key = {}
+    keys = []
+    for entry in entries:
+        path_obj = _as_path_obj(None, entry) if type(entry) != "string" else entry
+        key = str(path_obj if type(entry) != "string" else entry)
+        by_key[key] = entry
+        keys.append(key)
+    sorted_entries = []
+    for key in sorted(keys):
+        sorted_entries.append(by_key[key])
+    return sorted_entries
 
-    ps_result = repository_ctx.execute(
-        ["powershell", "-NoProfile", "-Command", ps_script],
-        timeout = 120,
-    )
-
-    if ps_result.return_code == 0 and ps_result.stdout.strip():
-        return _parse_windows_paths(ps_result.stdout, str(workspace_dir))
-
-    # Fallback to cmd.exe dir command
-    cmd_result = repository_ctx.execute(
-        ["cmd", "/c", "dir", "/s", "/b", str(workspace_dir) + "\\*.csproj", str(workspace_dir) + "\\*.fsproj"],
-        timeout = 120,
-    )
-
-    if cmd_result.return_code == 0:
-        return _parse_windows_paths(cmd_result.stdout, str(workspace_dir))
-
-    fail("Failed to discover project files on Windows.\nPowerShell exit code: {} stderr: {}\ncmd exit code: {} stderr: {}\nworkspace: {}".format(
-        ps_result.return_code,
-        ps_result.stderr.strip() if ps_result.stderr else "none",
-        cmd_result.return_code,
-        cmd_result.stderr.strip() if cmd_result.stderr else "none",
-        workspace_dir,
-    ))
-
-def _parse_windows_paths(output, workspace_dir):
-    """Parse Windows command output and convert to relative paths.
-
-    Args:
-        output: Command output with full paths.
-        workspace_dir: Workspace directory path.
-
-    Returns:
-        List of relative paths with forward slashes.
-    """
-    project_files = []
-    workspace_str = workspace_dir.replace("/", "\\")
-
-    # Also handle forward-slash version
-    workspace_str_fwd = workspace_dir.replace("\\", "/")
-
-    for line in output.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-
-        # Skip common exclusion directories
-        line_lower = line.lower()
-        if "\\bin\\" in line_lower or "\\obj\\" in line_lower or "\\.git\\" in line_lower or "\\.jj\\" in line_lower or "\\bazel-" in line_lower:
-            continue
-
-        # Make path relative
-        if line.startswith(workspace_str):
-            rel_path = line[len(workspace_str):]
-        elif line.startswith(workspace_str_fwd):
-            rel_path = line[len(workspace_str_fwd):]
-        else:
-            rel_path = line
-
-        # Remove leading path separator
-        if rel_path.startswith("\\") or rel_path.startswith("/"):
-            rel_path = rel_path[1:]
-
-        # Normalize to forward slashes
-        rel_path = rel_path.replace("\\", "/")
-
-        if rel_path:
-            project_files.append(rel_path)
-
-    return project_files
+def _is_pruned_dir_name(name):
+    return name in ["bin", "obj", ".git", ".jj"] or name.startswith("bazel-")
 
 def _matches_exclude(path, patterns):
     """Check if a path matches any exclude pattern.
