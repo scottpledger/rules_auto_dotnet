@@ -64,10 +64,10 @@ def _generate_library_bzl_test_impl(ctx):
     asserts.true(env, 'load("@rules_dotnet//dotnet:defs.bzl"' in bzl_content)
     asserts.true(env, "auto_dotnet_targets" in bzl_content)
     asserts.true(env, '"lib.cs"' in bzl_content)
-    asserts.true(env, 'target_frameworks = ["net9.0"]' in bzl_content)
+    asserts.true(env, 'target_frameworks = kwargs.pop("target_frameworks", ["net9.0"])' in bzl_content)
     asserts.true(env, "@csproj.nuget//newtonsoft.json" in bzl_content)
-    asserts.true(env, 'project_sdk = "default"' in bzl_content)
-    asserts.true(env, 'nullable = "enable"' in bzl_content)
+    asserts.true(env, 'project_sdk = kwargs.pop("project_sdk", "default")' in bzl_content)
+    asserts.true(env, 'nullable = kwargs.pop("nullable", "enable")' in bzl_content)
 
     return unittest.end(env)
 
@@ -111,11 +111,32 @@ def _generate_web_sdk_bzl_test_impl(ctx):
     )
 
     # Check that web SDK is properly set
-    asserts.true(env, 'project_sdk = "web"' in bzl_content)
+    asserts.true(env, 'project_sdk = kwargs.pop("project_sdk", "web")' in bzl_content)
 
     return unittest.end(env)
 
 generate_web_sdk_bzl_test = unittest.make(_generate_web_sdk_bzl_test_impl)
+
+def _project_sdk_override_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    parsed = parse_project_file(_TEST_LIBRARY_CSPROJ)
+    bzl_content = generate_project_bzl(
+        parsed,
+        "my/path/lib.csproj",
+        "my/path",
+        False,
+        "csproj.nuget",
+        "",
+        [],
+        "web",
+    )
+
+    asserts.true(env, 'project_sdk = kwargs.pop("project_sdk", "web")' in bzl_content)
+
+    return unittest.end(env)
+
+project_sdk_override_test = unittest.make(_project_sdk_override_test_impl)
 
 def _generate_fsharp_bzl_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -196,9 +217,39 @@ def _kwargs_passthrough_test_impl(ctx):
     # Check that **kwargs is passed through
     asserts.true(env, "**kwargs" in bzl_content)
 
+    # Generated attributes should consume kwargs keys before forwarding **kwargs.
+    asserts.true(env, 'project_sdk = kwargs.pop("project_sdk", "default")' in bzl_content)
+    asserts.true(env, 'srcs = kwargs.pop("srcs",' in bzl_content)
+    asserts.true(env, 'target_frameworks = kwargs.pop("target_frameworks",' in bzl_content)
+
     return unittest.end(env)
 
 kwargs_passthrough_test = unittest.make(_kwargs_passthrough_test_impl)
+
+def _kwargs_override_consumption_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    parsed = parse_project_file(_TEST_LIBRARY_CSPROJ)
+    bzl_content = generate_project_bzl(
+        parsed,
+        "my/path/lib.csproj",
+        "my/path",
+        False,
+        "csproj.nuget",
+        "",
+    )
+
+    # Ensure override keys are consumed from kwargs before forwarding **kwargs
+    # to avoid duplicate keyword argument errors.
+    asserts.true(env, 'srcs = kwargs.pop("srcs",' in bzl_content)
+    asserts.true(env, 'project_sdk = kwargs.pop("project_sdk", "default")' in bzl_content)
+    asserts.true(env, "srcs = srcs," in bzl_content)
+    asserts.true(env, "project_sdk = project_sdk," in bzl_content)
+    asserts.true(env, "**kwargs" in bzl_content)
+
+    return unittest.end(env)
+
+kwargs_override_consumption_test = unittest.make(_kwargs_override_consumption_test_impl)
 
 def _internals_visible_to_generation_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -214,7 +265,7 @@ def _internals_visible_to_generation_test_impl(ctx):
         ["//app:Program", "//tests:LibTests"],
     )
 
-    asserts.true(env, "internals_visible_to = [" in bzl_content)
+    asserts.true(env, 'internals_visible_to = kwargs.pop("internals_visible_to", [' in bzl_content)
     asserts.true(env, '"//app:Program"' in bzl_content)
     asserts.true(env, '"//tests:LibTests"' in bzl_content)
 
@@ -255,11 +306,13 @@ def generator_test_suite(name):
         generate_library_bzl_test,
         generate_binary_bzl_test,
         generate_web_sdk_bzl_test,
+        project_sdk_override_test,
         generate_fsharp_bzl_test,
         generate_defs_bzl_test,
         generate_root_build_bazel_test,
         generate_subdir_build_bazel_test,
         kwargs_passthrough_test,
+        kwargs_override_consumption_test,
         deterministic_generation_test,
         internals_visible_to_generation_test,
     )

@@ -93,9 +93,31 @@ auto_dotnet.scan_projects(
     toolchain_diagnostics = "warn",  # off | warn | strict
     parser_diagnostics = "warn",     # off | warn | strict
     paket_diagnostics = "warn",      # off | warn | strict
+    paket_references_strict_mode_diagnostics = "strict",  # off | warn | strict (default: strict)
     internals_visibility_diagnostics = "warn",  # off | warn | strict
     emit_diagnostics_report = True,  # writes diagnostics.json + DIAGNOSTICS.md
 )
+```
+
+### Paket Strict Mode Adoption
+
+For enterprise consistency, `scan_projects()` enforces that workspaces using
+Paket imports configure `references: strict!` in `paket.dependencies`.
+
+- Default behavior is fail-fast after diagnostic aggregation
+  (`paket_references_strict_mode_diagnostics = "strict"`).
+- You can downgrade to `"warn"` or disable with `"off"`.
+- Use the sync target to add missing direct package entries to per-project
+  `paket.references` files:
+
+```bash
+bazel run @rules_auto_dotnet//tools:sync_paket_references -- --workspace .
+```
+
+Check-only mode for CI:
+
+```bash
+bazel run @rules_auto_dotnet//tools:sync_paket_references -- --workspace . --check
 ```
 
 `rules_auto_dotnet` does not register toolchains. Continue registering toolchains

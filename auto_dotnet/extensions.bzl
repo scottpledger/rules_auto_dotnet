@@ -48,6 +48,15 @@ Allowed values: "off", "warn", "strict".
 - warn: emit warnings and continue (default)
 - strict: fail after collecting diagnostics""",
     ),
+    "paket_references_strict_mode_diagnostics": attr.string(
+        default = "strict",
+        doc = """Severity for enforcing `references: strict!` in paket.dependencies.
+
+Allowed values: "off", "warn", "strict".
+- off: do not enforce strict! adoption
+- warn: emit warning and continue
+- strict: fail after collecting diagnostics (default)""",
+    ),
     "internals_visibility_diagnostics": attr.string(
         default = "warn",
         doc = """Severity for InternalsVisibleTo diagnostics.
@@ -117,6 +126,7 @@ def _auto_dotnet_extension(module_ctx):
             toolchain_diagnostics = scan_config.toolchain_diagnostics,
             parser_diagnostics = scan_config.parser_diagnostics,
             paket_diagnostics = scan_config.paket_diagnostics,
+            paket_references_strict_mode_diagnostics = scan_config.paket_references_strict_mode_diagnostics,
             internals_visibility_diagnostics = scan_config.internals_visibility_diagnostics,
             emit_diagnostics_report = scan_config.emit_diagnostics_report,
         )

@@ -11,7 +11,8 @@ def generate_project_bzl(
         is_fsharp,
         nuget_repo_name = "dotnet_projects.nuget",
         workspace_root = "",
-        internals_visible_to_labels = []):
+        internals_visible_to_labels = [],
+        project_sdk_override = None):
     """Generate the .bzl file content for a single project.
 
     Args:
@@ -22,12 +23,13 @@ def generate_project_bzl(
         nuget_repo_name: Name of the NuGet repository.
         workspace_root: The workspace root for label resolution.
         internals_visible_to_labels: Labels to set in internals_visible_to.
+        project_sdk_override: Optional explicit project_sdk to emit.
 
     Returns:
         String content of the .bzl file.
     """
     rule_name = get_bazel_rule_name(parsed_project, is_fsharp)
-    project_sdk = get_project_sdk_attr(parsed_project)
+    project_sdk = project_sdk_override if project_sdk_override != None else get_project_sdk_attr(parsed_project)
     additional_attrs = extract_additional_attrs(parsed_project)
 
     # Generate source file list or glob
@@ -49,49 +51,61 @@ def generate_project_bzl(
     lines.append("        name: The target name.")
     lines.append("        **kwargs: Additional arguments passed to the underlying rule.")
     lines.append('    """')
+    lines.append("    kwargs = dict(kwargs)")
 
-    # Start rule invocation
-    lines.append("    {}(".format(rule_name))
-    lines.append("        name = name,")
+    # Consume overridable attrs from kwargs to avoid duplicate keyword
+    # arguments when forwarding **kwargs to the underlying rule.
+    lines.append("    srcs = kwargs.pop(\"srcs\", {})".format(srcs))
 
-    # Source files
-    lines.append("        srcs = {},".format(srcs))
-
-    # Target frameworks (required)
     if parsed_project.target_frameworks:
         frameworks = ['"{}"'.format(f) for f in parsed_project.target_frameworks]
-        lines.append("        target_frameworks = [{}],".format(", ".join(frameworks)))
+        lines.append("    target_frameworks = kwargs.pop(\"target_frameworks\", [{}])".format(", ".join(frameworks)))
     else:
         # Default to a reasonable framework if none specified
-        lines.append('        target_frameworks = ["net8.0"],  # Default, update as needed')
+        lines.append('    target_frameworks = kwargs.pop("target_frameworks", ["net8.0"])')
 
     # Dependencies
     if deps:
-        lines.append("        deps = [")
+        lines.append("    deps = kwargs.pop(\"deps\", [")
         for dep in deps:
-            lines.append('            "{}",'.format(dep))
-        lines.append("        ],")
+            lines.append('        "{}",'.format(dep))
+        lines.append("    ])")
 
     # Project SDK
     if project_sdk:
-        lines.append('        project_sdk = "{}",'.format(project_sdk))
+        lines.append('    project_sdk = kwargs.pop("project_sdk", "{}")'.format(project_sdk))
 
     # Friend assemblies mapped to Bazel labels.
     if internals_visible_to_labels:
-        lines.append("        internals_visible_to = [")
+        lines.append("    internals_visible_to = kwargs.pop(\"internals_visible_to\", [")
         for label in sorted(internals_visible_to_labels):
-            lines.append('            "{}",'.format(label))
-        lines.append("        ],")
+            lines.append('        "{}",'.format(label))
+        lines.append("    ])")
 
     # Additional attributes from properties
     for attr_name in sorted(additional_attrs.keys()):
         attr_value = additional_attrs[attr_name]
         if type(attr_value) == "bool":
-            lines.append("        {} = {},".format(attr_name, "True" if attr_value else "False"))
+            lines.append("    {} = kwargs.pop(\"{}\", {})".format(attr_name, attr_name, "True" if attr_value else "False"))
         elif type(attr_value) == "int":
-            lines.append("        {} = {},".format(attr_name, attr_value))
+            lines.append("    {} = kwargs.pop(\"{}\", {})".format(attr_name, attr_name, attr_value))
         else:
-            lines.append('        {} = "{}",'.format(attr_name, attr_value))
+            lines.append('    {} = kwargs.pop("{}", "{}")'.format(attr_name, attr_name, attr_value))
+
+    # Start rule invocation
+    lines.append("    {}(".format(rule_name))
+    lines.append("        name = name,")
+    lines.append("        srcs = srcs,")
+    lines.append("        target_frameworks = target_frameworks,")
+    if deps:
+        lines.append("        deps = deps,")
+    if project_sdk:
+        lines.append("        project_sdk = project_sdk,")
+    if internals_visible_to_labels:
+        lines.append("        internals_visible_to = internals_visible_to,")
+
+    for attr_name in sorted(additional_attrs.keys()):
+        lines.append("        {} = {},".format(attr_name, attr_name))
 
     # Allow kwargs override
     lines.append("        **kwargs")
@@ -120,10 +134,10 @@ def _generate_srcs(parsed_project, is_fsharp):
 
     if parsed_project.enable_default_items:
         # Use glob for default item behavior (SDK-style projects include subdirectories)
-        return 'kwargs.get("srcs", native.glob(["**/*{}"], exclude = ["obj/**", "bin/**"]))'.format(ext)
+        return 'native.glob(["**/*{}"], exclude = ["obj/**", "bin/**"])'.format(ext)
 
-    # No sources and default items disabled - return empty or kwargs
-    return 'kwargs.get("srcs", [])'
+    # No sources and default items disabled.
+    return "[]"
 
 def _generate_deps(parsed_project, project_dir, nuget_repo_name, _workspace_root):  # buildifier: disable=unused-variable
     """Generate the deps list.

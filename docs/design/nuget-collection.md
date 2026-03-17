@@ -85,6 +85,16 @@ integration. Users can copy this to their workspace root and run
 - Missing `paket.references` produces diagnostics (category `paket`) according to
   `paket_diagnostics` mode (`off|warn|strict`).
 - Unsupported `paket.references` directives are ignored instead of failing parse.
+- Workspace-level `paket.dependencies` is checked for `references: strict!` when
+  Paket imports are present. This is enforced by
+  `paket_references_strict_mode_diagnostics` (`off|warn|strict`) and defaults to
+  `strict`.
+- When `references: strict`/`strict!` is enabled, direct `<PackageReference>`
+  package IDs must be listed in sibling `paket.references`; missing entries emit
+  policy-driven diagnostics (`paket_strict_references`).
+- Users can run
+  `bazel run @rules_auto_dotnet//tools:sync_paket_references -- --workspace .`
+  to add missing direct package IDs deterministically.
 
 ## Limitations
 

@@ -157,11 +157,15 @@ All new scanning/generation work must satisfy the following standards before mer
 
 - Treat Paket as first-class when `<Import Project=".../.paket/Paket.Restore.targets" />`
   is present.
+- Enforce `references: strict!` adoption for Paket workspaces by default; allow
+  policy override (`off|warn|strict`) via configuration.
 - Read `paket.references` at most once per relevant project.
 - For `paket.references` parsing:
   - ignore blank lines and comments
   - support package IDs and `nuget <id>` lines
   - skip unsupported directives with diagnostics
+- Provide a user-runnable sync path to update `paket.references` from direct
+  project package usage. Sync behavior must be deterministic and idempotent.
 
 ### InternalsVisibleTo Handling
 
