@@ -149,6 +149,32 @@ def _parse_paket_references_content(content):
         package_ids.append(line)
     return sorted(package_ids)
 
+def _parse_paket_dependencies_content(content):
+    """Parse paket.dependencies content for references strict mode settings."""
+    references_strict = False
+    references_strict_bang = False
+
+    for raw_line in content.split("\n"):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        lower = line.lower()
+        if not lower.startswith("references:"):
+            continue
+
+        value = line.split(":", 1)[1].strip().lower()
+        if value.startswith("strict!"):
+            references_strict = True
+            references_strict_bang = True
+            break
+        if value.startswith("strict"):
+            references_strict = True
+
+    return struct(
+        references_strict = references_strict,
+        references_strict_bang = references_strict_bang,
+    )
+
 def _merge_package_references(package_refs, paket_ids):
     """Merge package references with paket.references package IDs."""
     by_id = {}
@@ -166,6 +192,24 @@ def _merge_package_references(package_refs, paket_ids):
         merged.append(by_id[normalized])
     return merged
 
+def _missing_package_references_for_paket_strict(package_refs, paket_ids):
+    """Return sorted direct PackageReference IDs missing from paket.references."""
+    paket_ids_by_norm = {}
+    for paket_id in paket_ids:
+        paket_ids_by_norm[paket_id.lower()] = True
+
+    missing_by_norm = {}
+    for pkg in package_refs:
+        normalized = pkg.id.lower()
+        if normalized in paket_ids_by_norm or normalized in missing_by_norm:
+            continue
+        missing_by_norm[normalized] = pkg.id
+
+    missing = []
+    for normalized in sorted(missing_by_norm.keys()):
+        missing.append(missing_by_norm[normalized])
+    return missing
+
 def _normalize_assembly_name(name):
     if not name:
         return ""
@@ -175,6 +219,36 @@ def _normalize_assembly_name(name):
     if "," in cleaned:
         cleaned = cleaned.split(",", 1)[0].strip()
     return cleaned.lower()
+
+def _is_web_sdk_name(sdk_name):
+    if not sdk_name:
+        return False
+    return ".web" in sdk_name.lower()
+
+def _compute_effective_project_sdks(project_files, project_is_web_sdk, forward_refs):
+    """Compute effective project_sdk values with transitive web propagation."""
+    effective = {}
+    for project_path in project_files:
+        effective[project_path] = "web" if project_is_web_sdk.get(project_path, False) else "default"
+
+    # Propagate web SDK transitively from web roots to all referenced projects.
+    for root_project in sorted(project_files):
+        if not project_is_web_sdk.get(root_project, False):
+            continue
+        visited = {root_project: True}
+        pending = [root_project]
+        for next_index in range(1000000):
+            if next_index >= len(pending):
+                break
+            current = pending[next_index]
+            for dep in sorted(forward_refs.get(current, {}).keys()):
+                if dep in visited:
+                    continue
+                visited[dep] = True
+                effective[dep] = "web"
+                pending.append(dep)
+
+    return effective
 
 def _validate_diagnostics_mode(attr_name, mode):
     """Validate diagnostics mode.
@@ -367,9 +441,41 @@ def parse_paket_references_for_test(content):
     """Test helper for parsing paket.references content."""
     return _parse_paket_references_content(content)
 
+def parse_paket_dependencies_for_test(content):
+    """Test helper for parsing paket.dependencies content."""
+    return _parse_paket_dependencies_content(content)
+
 def merge_package_references_for_test(package_refs, paket_ids):
     """Test helper for package merge behavior."""
     return _merge_package_references(package_refs, paket_ids)
+
+def missing_package_references_for_paket_strict_for_test(package_refs, paket_ids):
+    """Test helper for strict Paket package coverage checks."""
+    return _missing_package_references_for_paket_strict(package_refs, paket_ids)
+
+def effective_project_sdks_for_test(project_files, web_projects, forward_edges):
+    """Test helper for transitive project_sdk propagation.
+
+    Args:
+        project_files: List of project paths participating in the graph.
+        web_projects: List of project paths that are explicit web SDK roots.
+        forward_edges: Dict of project path -> list of referenced project paths.
+
+    Returns:
+        Dict of project path -> effective project_sdk string ("web" or "default").
+    """
+    project_is_web_sdk = {}
+    for project in project_files:
+        project_is_web_sdk[project] = project in web_projects
+
+    forward_refs = {}
+    for src in forward_edges.keys():
+        if src not in forward_refs:
+            forward_refs[src] = {}
+        for dep in forward_edges[src]:
+            forward_refs[src][dep] = True
+
+    return _compute_effective_project_sdks(project_files, project_is_web_sdk, forward_refs)
 
 def _dotnet_projects_repo_impl(repository_ctx):
     """Implementation of the dotnet_projects_repo repository rule."""
@@ -381,6 +487,10 @@ def _dotnet_projects_repo_impl(repository_ctx):
     parser_mode = _validate_diagnostics_mode("parser_diagnostics", repository_ctx.attr.parser_diagnostics)
     toolchain_mode = _validate_diagnostics_mode("toolchain_diagnostics", repository_ctx.attr.toolchain_diagnostics)
     paket_mode = _validate_diagnostics_mode("paket_diagnostics", repository_ctx.attr.paket_diagnostics)
+    paket_strict_mode_diagnostics = _validate_diagnostics_mode(
+        "paket_references_strict_mode_diagnostics",
+        repository_ctx.attr.paket_references_strict_mode_diagnostics,
+    )
     internals_mode = _validate_diagnostics_mode(
         "internals_visibility_diagnostics",
         repository_ctx.attr.internals_visibility_diagnostics,
@@ -410,6 +520,17 @@ def _dotnet_projects_repo_impl(repository_ctx):
         workspace_dir,
         exclude_patterns,
     )
+
+    # Parse workspace-level paket.dependencies once for strict mode policy.
+    paket_dependencies = struct(
+        references_strict = False,
+        references_strict_bang = False,
+    )
+    paket_dependencies_path = repository_ctx.path(workspace_dir).get_child("paket.dependencies")
+    if hasattr(paket_dependencies_path, "exists") and paket_dependencies_path.exists:
+        paket_dependencies_content = repository_ctx.read(paket_dependencies_path)
+        if paket_dependencies_content:
+            paket_dependencies = _parse_paket_dependencies_content(paket_dependencies_content)
 
     # Watch directories containing project files for changes
     # This helps Bazel detect when new files are added to existing project directories
@@ -447,9 +568,12 @@ def _dotnet_projects_repo_impl(repository_ctx):
     # Collect all TFMs for validation
     all_tfms = {}  # TFM -> list of projects using it
     parsed_projects = []  # Store parsed projects for later processing
+    project_is_web_sdk = {}
     project_to_assembly = {}
     assembly_to_project = {}
     reverse_refs = {}  # referenced project path -> dict(referencing project path -> True)
+    forward_refs = {}  # referencing project path -> dict(referenced project path -> True)
+    uses_paket_projects = []
 
     # First pass: parse all projects and collect TFMs
     for project_path in project_files:
@@ -469,6 +593,7 @@ def _dotnet_projects_repo_impl(repository_ctx):
 
         # Merge paket.references when Paket restore import is present.
         if parsed.uses_paket:
+            uses_paket_projects.append(project_path)
             project_dir = _project_dir(project_path)
             paket_refs_path = "paket.references" if not project_dir else project_dir + "/paket.references"
             paket_refs_full = repository_ctx.path(workspace_dir).get_child(paket_refs_path)
@@ -476,6 +601,7 @@ def _dotnet_projects_repo_impl(repository_ctx):
             if hasattr(paket_refs_full, "exists") and paket_refs_full.exists:
                 paket_refs_content = repository_ctx.read(paket_refs_full)
 
+            paket_ids = []
             if paket_refs_content:
                 paket_ids = _parse_paket_references_content(paket_refs_content)
                 merged_package_refs = _merge_package_references(parsed.package_references, paket_ids)
@@ -505,6 +631,21 @@ def _dotnet_projects_repo_impl(repository_ctx):
                     "Paket diagnostic",
                 )
 
+            # Validate direct PackageReference coverage when strict references are enabled.
+            if paket_dependencies.references_strict:
+                missing_refs = _missing_package_references_for_paket_strict(parsed.package_references, paket_ids)
+                for missing_pkg in missing_refs:
+                    _record_policy_diagnostic(
+                        diagnostics,
+                        strict_failures,
+                        paket_strict_mode_diagnostics,
+                        "paket_strict_references",
+                        "Project uses PackageReference '{}' but paket.references does not include it while references: strict is enabled.".format(missing_pkg),
+                        project_path,
+                        "Add '{}' to {} or run `bazel run @rules_auto_dotnet//tools:sync_paket_references -- --workspace .`.".format(missing_pkg, paket_refs_path),
+                        "Paket strict references diagnostic",
+                    )
+
         if parsed.errors:
             _apply_parser_errors(
                 diagnostics,
@@ -521,6 +662,7 @@ def _dotnet_projects_repo_impl(repository_ctx):
             all_tfms[tfm].append(project_path)
 
         # Store for later
+        project_is_web_sdk[project_path] = _is_web_sdk_name(parsed.sdk)
         assembly_name = parsed.properties.get("AssemblyName", _project_stem(project_path))
         normalized_assembly = _normalize_assembly_name(assembly_name)
         if normalized_assembly and normalized_assembly not in assembly_to_project:
@@ -533,6 +675,9 @@ def _dotnet_projects_repo_impl(repository_ctx):
             resolved = resolve_relative_path(project_dir, proj_ref.path)
             if not resolved:
                 continue
+            if project_path not in forward_refs:
+                forward_refs[project_path] = {}
+            forward_refs[project_path][resolved] = True
             if resolved not in reverse_refs:
                 reverse_refs[resolved] = {}
             reverse_refs[resolved][project_path] = True
@@ -542,6 +687,22 @@ def _dotnet_projects_repo_impl(repository_ctx):
             parsed = parsed,
             is_fsharp = is_fsharp,
         ))
+
+    # Enforce enterprise adoption of references: strict! by default for Paket users.
+    if uses_paket_projects and not paket_dependencies.references_strict_bang:
+        strict_mode_state = "missing"
+        if paket_dependencies.references_strict:
+            strict_mode_state = "set-to-strict-without-bang"
+        _record_policy_diagnostic(
+            diagnostics,
+            strict_failures,
+            paket_strict_mode_diagnostics,
+            "paket_references_strict_mode",
+            "Workspace uses Paket projects but paket.dependencies is {} and must include `references: strict!`.".format(strict_mode_state),
+            "",
+            "Set `references: strict!` in workspace paket.dependencies and run `bazel run @rules_auto_dotnet//tools:sync_paket_references -- --workspace .`.",
+            "Paket strict mode diagnostic",
+        )
 
     # Validate toolchain coverage
     if not registered_toolchains and all_tfms and toolchain_mode != "off":
@@ -613,6 +774,8 @@ def _dotnet_projects_repo_impl(repository_ctx):
 
         repository_ctx.file("TOOLCHAIN_COVERAGE.md", "\n".join(summary_lines))
 
+    effective_project_sdks = _compute_effective_project_sdks(project_files, project_is_web_sdk, forward_refs)
+
     # Second pass: generate .bzl files
     for proj in parsed_projects:
         project_path = proj.path
@@ -653,6 +816,10 @@ def _dotnet_projects_repo_impl(repository_ctx):
                     "InternalsVisibleTo diagnostic",
                 )
 
+        # Propagate project_sdk=web transitively to dependencies of web projects.
+        # Callers may still override via kwargs in generated macros.
+        effective_project_sdk = effective_project_sdks.get(project_path, "default")
+
         # Collect NuGet packages
         nuget_collector.add_packages_from_project(parsed.package_references, project_path)
 
@@ -665,6 +832,7 @@ def _dotnet_projects_repo_impl(repository_ctx):
             nuget_repo_name,
             str(workspace_dir),
             sorted(internals_visible_to_labels.keys()),
+            effective_project_sdk,
         )
 
         # Determine output path
@@ -797,6 +965,10 @@ dotnet_projects_repo = repository_rule(
         "paket_diagnostics": attr.string(
             default = "warn",
             doc = "Diagnostics mode for Paket checks: off|warn|strict.",
+        ),
+        "paket_references_strict_mode_diagnostics": attr.string(
+            default = "strict",
+            doc = "Diagnostics mode for requiring `references: strict!` in paket.dependencies: off|warn|strict.",
         ),
         "internals_visibility_diagnostics": attr.string(
             default = "warn",

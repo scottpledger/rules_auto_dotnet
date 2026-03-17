@@ -7,7 +7,10 @@ load(
     "apply_policy_diagnostic_for_test",
     "diagnostics_mode_is_valid_for_test",
     "diagnostics_outputs_for_test",
+    "effective_project_sdks_for_test",
     "merge_package_references_for_test",
+    "missing_package_references_for_paket_strict_for_test",
+    "parse_paket_dependencies_for_test",
     "parse_paket_references_for_test",
     "sorted_diagnostics_for_test",
 )
@@ -155,6 +158,52 @@ def _merge_package_references_test_impl(ctx):
 
 merge_package_references_test = unittest.make(_merge_package_references_test_impl)
 
+def _paket_dependencies_parse_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    strict = parse_paket_dependencies_for_test("""
+# comment
+references: strict
+""")
+    asserts.equals(env, True, strict.references_strict)
+    asserts.equals(env, False, strict.references_strict_bang)
+
+    strict_bang = parse_paket_dependencies_for_test("""
+references: strict!
+""")
+    asserts.equals(env, True, strict_bang.references_strict)
+    asserts.equals(env, True, strict_bang.references_strict_bang)
+
+    none = parse_paket_dependencies_for_test("""
+source https://api.nuget.org/v3/index.json
+""")
+    asserts.equals(env, False, none.references_strict)
+    asserts.equals(env, False, none.references_strict_bang)
+
+    return unittest.end(env)
+
+paket_dependencies_parse_test = unittest.make(_paket_dependencies_parse_test_impl)
+
+def _missing_package_references_for_strict_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    package_refs = [
+        struct(id = "Newtonsoft.Json", version = "13.0.3"),
+        struct(id = "Serilog", version = "4.0.0"),
+        struct(id = "newtonsoft.json", version = "13.0.3"),
+        struct(id = "Microsoft.Extensions.Logging", version = "8.0.0"),
+    ]
+    missing = missing_package_references_for_paket_strict_for_test(
+        package_refs,
+        ["serilog"],
+    )
+
+    asserts.equals(env, ["Microsoft.Extensions.Logging", "Newtonsoft.Json"], missing)
+
+    return unittest.end(env)
+
+missing_package_references_for_strict_test = unittest.make(_missing_package_references_for_strict_test_impl)
+
 def _policy_diagnostic_modes_test_impl(ctx):
     env = unittest.begin(ctx)
 
@@ -176,6 +225,34 @@ def _policy_diagnostic_modes_test_impl(ctx):
 
 policy_diagnostic_modes_test = unittest.make(_policy_diagnostic_modes_test_impl)
 
+def _effective_project_sdk_propagation_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    project_files = [
+        "src/app/App.csproj",
+        "src/lib/Lib.csproj",
+        "src/core/Core.csproj",
+        "src/tests/CoreTests.csproj",
+    ]
+    effective = effective_project_sdks_for_test(
+        project_files,
+        ["src/app/App.csproj"],
+        {
+            "src/app/App.csproj": ["src/lib/Lib.csproj"],
+            "src/lib/Lib.csproj": ["src/core/Core.csproj"],
+            "src/tests/CoreTests.csproj": ["src/core/Core.csproj"],
+        },
+    )
+
+    asserts.equals(env, "web", effective["src/app/App.csproj"])
+    asserts.equals(env, "web", effective["src/lib/Lib.csproj"])
+    asserts.equals(env, "web", effective["src/core/Core.csproj"])
+    asserts.equals(env, "default", effective["src/tests/CoreTests.csproj"])
+
+    return unittest.end(env)
+
+effective_project_sdk_propagation_test = unittest.make(_effective_project_sdk_propagation_test_impl)
+
 def dotnet_projects_repo_test_suite(name):
     unittest.suite(
         name,
@@ -184,6 +261,9 @@ def dotnet_projects_repo_test_suite(name):
         diagnostics_outputs_test,
         apply_parser_errors_test,
         paket_references_parse_test,
+        paket_dependencies_parse_test,
         merge_package_references_test,
+        missing_package_references_for_strict_test,
         policy_diagnostic_modes_test,
+        effective_project_sdk_propagation_test,
     )

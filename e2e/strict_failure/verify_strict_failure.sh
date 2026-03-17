@@ -22,6 +22,7 @@ log_file = pathlib.Path(sys.argv[1])
 content = log_file.read_text(encoding="utf-8")
 
 required = [
+    "Paket strict mode diagnostic: Workspace uses Paket projects but paket.dependencies is set-to-strict-without-bang and must include `references: strict!`.",
     "Paket diagnostic: Project imports Paket restore targets but no paket.references was found.",
     "InternalsVisibleTo diagnostic: Project is referenced by src/tests/CoreTests.csproj",
 ]

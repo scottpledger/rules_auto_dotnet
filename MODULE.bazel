@@ -15,3 +15,4 @@ bazel_dep(name = "rules_dotnet", version = "0.21.5")
 
 bazel_dep(name = "bazelrc-preset.bzl", version = "1.6.0", dev_dependency = True)
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1", dev_dependency = True)
+bazel_dep(name = "rules_python", version = "1.7.0", dev_dependency = True)

@@ -11,6 +11,12 @@ def assert_contains(path: pathlib.Path, needle: str) -> None:
         raise AssertionError(f"Expected to find {needle!r} in {path}")
 
 
+def assert_not_contains(path: pathlib.Path, needle: str) -> None:
+    content = path.read_text(encoding="utf-8")
+    if needle in content:
+        raise AssertionError(f"Did not expect to find {needle!r} in {path}")
+
+
 def main() -> int:
     if len(sys.argv) != 7:
         raise SystemExit("expected 6 file path args")
@@ -23,22 +29,25 @@ def main() -> int:
     diag_md = pathlib.Path(sys.argv[6])
 
     # App is a web SDK project and references Lib.
-    assert_contains(app_bzl, 'project_sdk = "web"')
+    assert_contains(app_bzl, 'project_sdk = kwargs.pop("project_sdk", "web")')
     assert_contains(app_bzl, "//src/lib:Lib")
 
-    # Lib is Paket-based and should include paket + project-derived IVT.
-    assert_contains(lib_bzl, 'project_sdk = "default"')
+    # Lib is referenced by a web SDK project, so it should inherit web SDK.
+    assert_contains(lib_bzl, 'project_sdk = kwargs.pop("project_sdk", "web")')
+    assert_contains(lib_bzl, "//src/core:Core")
     assert_contains(lib_bzl, "@dotnet_projects.nuget//newtonsoft.json")
     assert_contains(lib_bzl, "@dotnet_projects.nuget//serilog")
-    assert_contains(lib_bzl, "internals_visible_to = [")
+    assert_contains(lib_bzl, 'internals_visible_to = kwargs.pop("internals_visible_to", [')
     assert_contains(lib_bzl, '"//src/app:App"')
 
+    # Core is transitively referenced by a web SDK project and should inherit web SDK.
+    assert_contains(core_bzl, 'project_sdk = kwargs.pop("project_sdk", "web")')
     # Core is referenced by CoreTests and should get derived IVT entry.
-    assert_contains(core_bzl, "internals_visible_to = [")
+    assert_contains(core_bzl, 'internals_visible_to = kwargs.pop("internals_visible_to", [')
     assert_contains(core_bzl, '"//src/tests:CoreTests"')
 
     # CoreTests should be default SDK and keep project dep.
-    assert_contains(core_tests_bzl, 'project_sdk = "default"')
+    assert_contains(core_tests_bzl, 'project_sdk = kwargs.pop("project_sdk", "default")')
     assert_contains(core_tests_bzl, "//src/core:Core")
 
     # Diagnostics should include missing explicit InternalsVisibleTo warning for Core.
@@ -47,6 +56,7 @@ def main() -> int:
     # Diagnostics should include missing paket.references warning.
     assert_contains(diag_md, "[warning] [paket] src/core/MissingPaket.csproj")
     assert_contains(diag_json, "Project imports Paket restore targets but no paket.references was found.")
+    assert_not_contains(diag_json, '"category":"paket_references_strict_mode"')
 
     return 0
 

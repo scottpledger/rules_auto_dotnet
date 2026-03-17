@@ -1,5 +1,6 @@
 load("@bazelrc-preset.bzl", "bazelrc_preset")
 load("@buildifier_prebuilt//:rules.bzl", "buildifier", "buildifier_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 bazelrc_preset(
     name = "preset",
@@ -21,6 +22,26 @@ buildifier_test(
     workspace = "//:MODULE.bazel",
 )
 
+py_library(
+    name = "sync_paket_references_lib",
+    srcs = ["sync_paket_references.py"],
+)
+
+py_binary(
+    name = "sync_paket_references",
+    srcs = ["sync_paket_references.py"],
+    main = "sync_paket_references.py",
+    visibility = ["//visibility:public"],
+    deps = [":sync_paket_references_lib"],
+)
+
+py_test(
+    name = "sync_paket_references_test",
+    srcs = ["sync_paket_references_test.py"],
+    deps = [":sync_paket_references_lib"],
+)
+
 exports_files([
     "phase0_scale_benchmark.sh",
+    "sync_paket_references.py",
 ])

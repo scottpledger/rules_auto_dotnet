@@ -226,7 +226,7 @@
     },
     "@@rules_auto_dotnet+//auto_dotnet:extensions.bzl%auto_dotnet": {
       "general": {
-        "bzlTransitiveDigest": "5TGkTJRsuFSUbKE465mk7zwEWpzOxBRu9k9STQSEvv4=",
+        "bzlTransitiveDigest": "l04sTvaxHzX2AEWCk6gTGUD+KGwme/MbP2sdrTccnic=",
         "usagesDigest": "ccDB0NUf2qUmqs7TVXznC65G5mtlJkPCO+DuyFiwIjU=",
         "recordedInputs": [
           "REPO_MAPPING:rules_auto_dotnet+,bazel_lib bazel_lib+",
@@ -252,6 +252,7 @@
               "toolchain_diagnostics": "warn",
               "parser_diagnostics": "warn",
               "paket_diagnostics": "warn",
+              "paket_references_strict_mode_diagnostics": "strict",
               "internals_visibility_diagnostics": "warn",
               "emit_diagnostics_report": true
             }
