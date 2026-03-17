@@ -18,6 +18,7 @@ py_binary(
 genrule(
     name = "integration_scan_projects_verify",
     srcs = [
+        "integration_scan_projects_verify.py",
         "@dotnet_projects//src/app:App.csproj.bzl",
         "@dotnet_projects//src/lib:Lib.csproj.bzl",
         "@dotnet_projects//src/core:Core.csproj.bzl",
